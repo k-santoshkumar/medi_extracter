@@ -9,6 +9,18 @@ RUN apt-get update && apt-get install -y \
 # Set the working directory in the container
 WORKDIR /app
 
+# ── Build Frontend ──
+# Install Node.js to build the frontend
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs
+
+COPY frontend/package*.json ./frontend/
+RUN cd frontend && npm install --legacy-peer-deps
+COPY frontend/ ./frontend/
+RUN cd frontend && npm run build
+
+# ── Setup Backend ──
 # Copy requirement list and install python dependencies
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

@@ -14,8 +14,8 @@ from backend.services.normalization_service import normalize_biomarker_names
 
 # ── App Setup ────────────────────────────────────────────────────────────────
 load_dotenv()
-
-app = Flask(__name__)
+# Point static_folder to the frontend build directory
+app = Flask(__name__, static_folder="../frontend/dist", static_url_path="/")
 CORS(app)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -76,6 +76,11 @@ class DashboardStats(BaseModel):
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+@app.route("/")
+def root():
+    # Serve the frontend index.html
+    return send_from_directory(app.static_folder, "index.html")
+
 @app.route("/uploads/<path:filename>")
 def serve_uploads(filename):
     return send_from_directory(UPLOAD_DIR, filename)
