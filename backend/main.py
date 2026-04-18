@@ -83,7 +83,20 @@ def serve_uploads(filename):
 
 @app.route("/health", methods=["GET"])
 def health_check():
-    return jsonify({"status": "ok", "service": "MedExtract API connected to Supabase"})
+    try:
+        # Perform a lightweight query to test Supabase DB connectivity
+        supabase.table("reports").select("id").limit(1).execute()
+        db_status = "connected"
+        status_code = 200
+    except Exception as e:
+        db_status = f"disconnected: {str(e)}"
+        status_code = 503
+
+    return jsonify({
+        "status": "ok" if status_code == 200 else "error",
+        "service": "MedExtract API",
+        "supabase_db": db_status
+    }), status_code
 
 
 @app.route("/api/v1/upload", methods=["POST"])
