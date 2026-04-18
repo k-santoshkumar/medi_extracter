@@ -3,37 +3,27 @@ import shutil
 import uuid
 import datetime
 from typing import List, Optional
-from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from sqlalchemy.orm import Session
-from sqlalchemy import func
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+from supabase import create_client, Client
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from backend.models.database import init_db, get_db, Report, Biomarker
 from backend.services.extraction_service import extract_data_from_document
 from backend.services.normalization_service import normalize_biomarker_names
 
 # ── App Setup ────────────────────────────────────────────────────────────────
-app = FastAPI(
-    title="MedExtract API",
-    description="Medical record extraction and biomarker dashboard API",
-    version="1.0.0"
-)
+load_dotenv()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production: restrict to your frontend domain
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = Flask(__name__)
+CORS(app)
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 UPLOAD_DIR = "./uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-# Serve uploaded files statically
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 
@@ -41,10 +31,10 @@ ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 class BiomarkerOut(BaseModel):
     id: int
     marker_name: str
-    original_name: str
+    original_name: Optional[str] = None
     value: str
-    unit: str
-    reference_range: str
+    unit: Optional[str] = None
+    reference_range: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -53,10 +43,10 @@ class BiomarkerOut(BaseModel):
 class ReportOut(BaseModel):
     id: int
     filename: str
-    patient_name: str
-    report_date: str
-    lab_name: str
-    doctor_name: str
+    patient_name: Optional[str] = None
+    report_date: Optional[str] = None
+    lab_name: Optional[str] = None
+    doctor_name: Optional[str] = None
     upload_date: datetime.datetime
     biomarkers: List[BiomarkerOut] = []
 
@@ -85,251 +75,246 @@ class DashboardStats(BaseModel):
     trends: List[MarkerTrend]
 
 
-# ── Startup ───────────────────────────────────────────────────────────────────
-@app.on_event("startup")
-def startup_event():
-    init_db()
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+@app.route("/uploads/<path:filename>")
+def serve_uploads(filename):
+    return send_from_directory(UPLOAD_DIR, filename)
 
 
-# ── Health Check ──────────────────────────────────────────────────────────────
-@app.get("/health")
+@app.route("/health", methods=["GET"])
 def health_check():
-    return {"status": "ok", "service": "MedExtract API"}
+    return jsonify({"status": "ok", "service": "MedExtract API connected to Supabase"})
 
 
-# ── Upload Endpoint ───────────────────────────────────────────────────────────
-@app.post("/api/v1/upload", response_model=ReportOut)
-async def upload_medical_record(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
-):
-    """
-    Upload a medical record (PDF or Image).
-    Extracts biomarkers using Gemini 2.0 Flash and saves to database.
-    """
+@app.route("/api/v1/upload", methods=["POST"])
+def upload_medical_record():
+    if "file" not in request.files:
+        return jsonify({"detail": "No file part"}), 400
+    
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"detail": "No selected file"}), 400
+        
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type '{ext}'. Allowed: PDF, JPG, PNG"
-        )
+        return jsonify({"detail": f"Unsupported file type '{ext}'. Allowed: PDF, JPG, PNG"}), 400
 
     # Save uploaded file
     unique_name = f"{uuid.uuid4()}{ext}"
     file_path = os.path.join(UPLOAD_DIR, unique_name)
-    with open(file_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    file.save(file_path)
 
     # Extract biomarkers using Gemini
     try:
         df = extract_data_from_document(file_path)
     except Exception as e:
-        os.remove(file_path)  # Cleanup on failure
-        raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
+        if os.path.exists(file_path):
+            os.remove(file_path)  # Cleanup on failure
+        return jsonify({"detail": f"Extraction failed: {str(e)}"}), 500
 
     if df.empty:
-        os.remove(file_path)
-        raise HTTPException(status_code=422, detail="Could not extract data. Please ensure this is a valid medical report.")
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        return jsonify({"detail": "Could not extract data. Please ensure this is a valid medical report."}), 422
 
     # Normalize biomarker columns
     META_COLS = {"patient_name", "report_date", "lab_name", "doctor_name"}
-    biomarker_cols = [c for c in df.columns if c.lower() not in META_COLS]
+    biomarker_cols = [c for c in df.columns if str(c).lower() not in META_COLS]
     col_map = normalize_biomarker_names(biomarker_cols)
 
-    # ── Determine report-level metadata ───────────────────────────────────────
-    # If extraction returned row-per-marker format
     is_long_format = "marker_name" in df.columns and "value" in df.columns
-    first_row = df.iloc[0]
+    first_row = df.iloc[0] if not df.empty else {}
 
-    patient_name = str(first_row.get("patient_name", "N/A")).strip()
-    report_date  = str(first_row.get("report_date", "N/A")).strip()
-    lab_name     = str(first_row.get("lab_name", "N/A")).strip()
-    doctor_name  = str(first_row.get("doctor_name", "N/A")).strip()
+    patient_name = str(first_row.get("patient_name", "N/A")).strip() if "patient_name" in first_row else "N/A"
+    report_date  = str(first_row.get("report_date", "N/A")).strip() if "report_date" in first_row else "N/A"
+    lab_name     = str(first_row.get("lab_name", "N/A")).strip() if "lab_name" in first_row else "N/A"
+    doctor_name  = str(first_row.get("doctor_name", "N/A")).strip() if "doctor_name" in first_row else "N/A"
 
-    # ── Save Report ────────────────────────────────────────────────────────────
-    report = Report(
-        filename=file.filename,
-        patient_name=patient_name,
-        report_date=report_date,
-        lab_name=lab_name,
-        doctor_name=doctor_name,
-        file_path=file_path,
-    )
-    db.add(report)
-    db.flush()  # Get the report ID before committing
+    try:
+        report_data = {
+            "filename": file.filename,
+            "patient_name": patient_name,
+            "report_date": report_date,
+            "lab_name": lab_name,
+            "doctor_name": doctor_name,
+            "file_path": file_path,
+            "upload_date": datetime.datetime.utcnow().isoformat()
+        }
+        res = supabase.table("reports").insert(report_data).execute()
+        if not res.data:
+            raise Exception("Failed to insert report into Supabase")
+        report = res.data[0]
+        report_id = report["id"]
 
-    # ── Save Biomarkers ────────────────────────────────────────────────────────
-    if is_long_format:
-        # Row-per-marker: each row is one biomarker
-        for _, row in df.iterrows():
-            original = str(row.get("marker_name", "")).strip()
-            if not original or original.lower() == "n/a":
-                continue
-            normalized = col_map.get(original, original)
-            if normalized.lower() == "ignore":
-                continue
-            bm = Biomarker(
-                report_id=report.id,
-                marker_name=normalized,
-                original_name=original,
-                value=str(row.get("value", "N/A")).strip(),
-                unit=str(row.get("unit", "")).strip(),
-                reference_range=str(row.get("reference_range", "")).strip(),
-            )
-            db.add(bm)
-    else:
-        # Wide format: each column is a biomarker
-        for original_col in biomarker_cols:
-            normalized = col_map.get(original_col, original_col)
-            if normalized.lower() == "ignore":
-                continue
+        biomarkers_to_insert = []
+        if is_long_format:
             for _, row in df.iterrows():
-                val = str(row.get(original_col, "N/A")).strip()
-                if val and val.lower() not in ("n/a", "nan", ""):
-                    bm = Biomarker(
-                        report_id=report.id,
-                        marker_name=normalized,
-                        original_name=original_col,
-                        value=val,
-                        unit="",
-                        reference_range="",
-                    )
-                    db.add(bm)
+                original = str(row.get("marker_name", "")).strip()
+                if not original or original.lower() == "n/a":
+                    continue
+                normalized = col_map.get(original, original)
+                if normalized.lower() == "ignore":
+                    continue
+                biomarkers_to_insert.append({
+                    "report_id": report_id,
+                    "marker_name": normalized,
+                    "original_name": original,
+                    "value": str(row.get("value", "N/A")).strip(),
+                    "unit": str(row.get("unit", "")).strip(),
+                    "reference_range": str(row.get("reference_range", "")).strip()
+                })
+        else:
+            for original_col in biomarker_cols:
+                normalized = col_map.get(original_col, str(original_col))
+                if normalized.lower() == "ignore":
+                    continue
+                for _, row in df.iterrows():
+                    val = str(row.get(original_col, "N/A")).strip()
+                    if val and val.lower() not in ("n/a", "nan", ""):
+                        biomarkers_to_insert.append({
+                            "report_id": report_id,
+                            "marker_name": normalized,
+                            "original_name": str(original_col),
+                            "value": val,
+                            "unit": "",
+                            "reference_range": ""
+                        })
 
-    db.commit()
-    db.refresh(report)
-    return report
+        if biomarkers_to_insert:
+            supabase.table("biomarkers").insert(biomarkers_to_insert).execute()
+        
+        final_res = supabase.table("reports").select("*, biomarkers(*)").eq("id", report_id).single().execute()
+        result = ReportOut.model_validate(final_res.data).model_dump(mode="json")
+        return jsonify(result), 201
 
-
-# ── List All Reports ───────────────────────────────────────────────────────────
-@app.get("/api/v1/reports", response_model=List[ReportOut])
-def list_reports(db: Session = Depends(get_db)):
-    """Returns all uploaded reports in reverse chronological order."""
-    reports = db.query(Report).order_by(Report.upload_date.desc()).all()
-    return reports
-
-
-# ── Get Single Report ──────────────────────────────────────────────────────────
-@app.get("/api/v1/reports/{report_id}", response_model=ReportOut)
-def get_report(report_id: int, db: Session = Depends(get_db)):
-    report = db.query(Report).filter(Report.id == report_id).first()
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
-    return report
-
-
-# ── Update Biomarker (User Correction) ────────────────────────────────────────
-@app.put("/api/v1/biomarkers/{biomarker_id}")
-def update_biomarker(
-    biomarker_id: int,
-    value: str,
-    unit: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """Allows the user to correct an extracted biomarker value."""
-    bm = db.query(Biomarker).filter(Biomarker.id == biomarker_id).first()
-    if not bm:
-        raise HTTPException(status_code=404, detail="Biomarker not found")
-    bm.value = value
-    if unit:
-        bm.unit = unit
-    db.commit()
-    return {"status": "updated", "id": biomarker_id}
+    except Exception as e:
+        return jsonify({"detail": f"Database error: {str(e)}"}), 500
 
 
-# ── Delete Report ──────────────────────────────────────────────────────────────
-@app.delete("/api/v1/reports/{report_id}")
-def delete_report(report_id: int, db: Session = Depends(get_db)):
-    report = db.query(Report).filter(Report.id == report_id).first()
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
-    # Remove the physical file
-    if report.file_path and os.path.exists(report.file_path):
-        os.remove(report.file_path)
-    db.delete(report)
-    db.commit()
-    return {"status": "deleted"}
+@app.route("/api/v1/reports", methods=["GET"])
+def list_reports():
+    try:
+        res = supabase.table("reports").select("*, biomarkers(*)").order("upload_date", desc=True).execute()
+        result = [ReportOut.model_validate(r).model_dump(mode="json") for r in res.data]
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"detail": str(e)}), 500
 
 
-# ── Dashboard Stats ────────────────────────────────────────────────────────────
-@app.get("/api/v1/dashboard/stats", response_model=DashboardStats)
-def get_dashboard_stats(db: Session = Depends(get_db)):
-    """
-    Returns aggregated data for the dashboard:
-    - Report counts
-    - Latest vital values
-    - Trend data for all biomarkers
-    """
-    total_reports = db.query(func.count(Report.id)).scalar()
-    total_markers = db.query(func.count(Biomarker.id)).scalar()
+@app.route("/api/v1/reports/<int:report_id>", methods=["GET"])
+def get_report(report_id):
+    try:
+        res = supabase.table("reports").select("*, biomarkers(*)").eq("id", report_id).maybe_single().execute()
+        if not res.data:
+            return jsonify({"detail": "Report not found"}), 404
+        result = ReportOut.model_validate(res.data).model_dump(mode="json")
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"detail": str(e)}), 500
 
-    latest_report = db.query(Report).order_by(Report.report_date.desc()).first()
-    latest_report_date = latest_report.report_date if latest_report else None
-    patient_name = latest_report.patient_name if latest_report else None
 
-    # Latest vitals: most recent value for each unique marker
-    latest_vitals = {}
-    subq = (
-        db.query(
-            Biomarker.marker_name,
-            func.max(Report.report_date).label("latest_date")
+@app.route("/api/v1/biomarkers/<int:biomarker_id>", methods=["PUT"])
+def update_biomarker(biomarker_id):
+    try:
+        data = request.get_json(silent=True) or request.args
+        update_data = {}
+        if "value" in data:
+            update_data["value"] = data["value"]
+        if "unit" in data:
+            update_data["unit"] = data["unit"]
+            
+        res = supabase.table("biomarkers").update(update_data).eq("id", biomarker_id).execute()
+        if not res.data:
+            return jsonify({"detail": "Biomarker not found"}), 404
+        return jsonify({"status": "updated", "id": biomarker_id}), 200
+    except Exception as e:
+        return jsonify({"detail": str(e)}), 500
+
+
+@app.route("/api/v1/reports/<int:report_id>", methods=["DELETE"])
+def delete_report(report_id):
+    try:
+        res = supabase.table("reports").select("file_path").eq("id", report_id).maybe_single().execute()
+        if not res.data:
+            return jsonify({"detail": "Report not found"}), 404
+        
+        file_path = res.data.get("file_path")
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+            
+        supabase.table("reports").delete().eq("id", report_id).execute()
+        return jsonify({"status": "deleted"}), 200
+    except Exception as e:
+        return jsonify({"detail": str(e)}), 500
+
+
+@app.route("/api/v1/dashboard/stats", methods=["GET"])
+def get_dashboard_stats():
+    try:
+        reports_res = supabase.table("reports").select("*").execute()
+        total_reports = len(reports_res.data)
+        
+        bm_res = supabase.table("biomarkers").select("id, marker_name, value, unit, reports(report_date, lab_name)").execute()
+        total_markers = len(bm_res.data)
+
+        latest_report_date = None
+        patient_name = None
+        if reports_res.data:
+            sorted_reports = sorted(reports_res.data, key=lambda x: x.get("report_date") or "", reverse=True)
+            latest_report_date = sorted_reports[0].get("report_date")
+            patient_name = sorted_reports[0].get("patient_name")
+
+        latest_vitals = {}
+        trends_dict = {}
+
+        for bm in bm_res.data:
+            m_name = bm.get("marker_name")
+            v = bm.get("value")
+            unit = bm.get("unit") or ""
+            r_data = bm.get("reports") or {}
+            
+            # PostgREST may return list of dicts for one-to-many or dict for many-to-one
+            if isinstance(r_data, list) and r_data:
+                r_data = r_data[0]
+            
+            r_date = r_data.get("report_date") if isinstance(r_data, dict) else ""
+            l_name = r_data.get("lab_name") if isinstance(r_data, dict) else ""
+
+            if not r_date: r_date = ""
+            if not l_name: l_name = ""
+
+            if m_name not in latest_vitals:
+                latest_vitals[m_name] = {"date": r_date, "value": v, "unit": unit}
+            else:
+                if r_date > latest_vitals[m_name]["date"]:
+                    latest_vitals[m_name] = {"date": r_date, "value": v, "unit": unit}
+                    
+            if m_name not in trends_dict:
+                trends_dict[m_name] = {"unit": unit, "data": []}
+                
+            val_to_check = str(v).lower() if v is not None else ""
+            if v and val_to_check not in ("n/a", "nan", "none", ""):
+                trends_dict[m_name]["data"].append({
+                    "report_date": r_date,
+                    "value": str(v),
+                    "lab_name": l_name
+                })
+
+        trends = []
+        for m_name, t_data in trends_dict.items():
+            if t_data["data"]:
+                t_data["data"].sort(key=lambda x: x["report_date"])
+                trends.append(MarkerTrend(marker_name=m_name, unit=t_data["unit"], data=t_data["data"]))
+
+        stats = DashboardStats(
+            total_reports=total_reports,
+            total_markers=total_markers,
+            latest_report_date=latest_report_date,
+            patient_name=patient_name,
+            latest_vitals=latest_vitals,
+            trends=trends,
         )
-        .join(Report)
-        .group_by(Biomarker.marker_name)
-        .subquery()
-    )
-    for row in db.query(subq).all():
-        bm = (
-            db.query(Biomarker)
-            .join(Report)
-            .filter(
-                Biomarker.marker_name == row.marker_name,
-                Report.report_date == row.latest_date
-            )
-            .first()
-        )
-        if bm:
-            latest_vitals[row.marker_name] = {
-                "value": bm.value,
-                "unit": bm.unit,
-                "date": row.latest_date,
-            }
+        return jsonify(stats.model_dump(mode="json")), 200
 
-    # Trends: all data points grouped by marker name
-    all_markers = (
-        db.query(Biomarker.marker_name)
-        .distinct()
-        .all()
-    )
-    trends = []
-    for (marker_name,) in all_markers:
-        rows = (
-            db.query(Biomarker, Report)
-            .join(Report)
-            .filter(Biomarker.marker_name == marker_name)
-            .order_by(Report.report_date.asc())
-            .all()
-        )
-        if not rows:
-            continue
-        unit = rows[-1][0].unit or ""
-        data = [
-            TrendPoint(
-                report_date=r.report_date or "",
-                value=b.value,
-                lab_name=r.lab_name or "",
-            )
-            for b, r in rows
-            if b.value and b.value.lower() not in ("n/a", "nan", "")
-        ]
-        if data:
-            trends.append(MarkerTrend(marker_name=marker_name, unit=unit, data=data))
-
-    return DashboardStats(
-        total_reports=total_reports,
-        total_markers=total_markers,
-        latest_report_date=latest_report_date,
-        patient_name=patient_name,
-        latest_vitals=latest_vitals,
-        trends=trends,
-    )
+    except Exception as e:
+        return jsonify({"detail": str(e)}), 500

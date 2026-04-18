@@ -1,6 +1,7 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-python-multipart==0.0.12
+Flask==3.0.3
+Flask-Cors==4.0.0
+gunicorn==22.0.0
+supabase
 sqlalchemy==2.0.36
 pydantic==2.9.2
 langchain-google-genai==2.0.7

@@ -20,4 +20,4 @@ COPY . .
 EXPOSE 10000
 
 # Command to run the application
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "10000"]
+CMD gunicorn -w 4 -b 0.0.0.0:${PORT:-10000} backend.main:app
