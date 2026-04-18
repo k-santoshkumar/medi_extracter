@@ -524,5 +524,8 @@ function escHtml(str) {
 }
 
 // ── Init ─────────────────────────────────────────────────────────────
+window.loadDashboard = loadDashboard;
+window.loadReports = loadReports;
+
 loadDashboard();
 loadReports();
