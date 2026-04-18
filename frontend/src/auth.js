@@ -90,3 +90,18 @@ $("logoutBtn")?.addEventListener("click", async () => {
 
 // Run Init
 checkSession();
+
+// Handle Deep Links for Capacitor (Android/iOS)
+if (window.Capacitor?.Plugins?.App) {
+  window.Capacitor.Plugins.App.addListener('appUrlOpen', ({ url }) => {
+    console.log("App opened with URL:", url);
+    // Supabase needs to handle this URL to extract the session
+    if (url.includes("#access_token") || url.includes("access_token=")) {
+      // Small trick: We redirect the webview to the hash to let Supabase parse it
+      const hash = url.split("#")[1];
+      if (hash) {
+        window.location.hash = hash;
+      }
+    }
+  });
+}
