@@ -1,0 +1,32 @@
+# Environment and Secrets
+.env
+token.json
+.venv/
+
+# Database and Data
+medical_data.db
+faiss_index/
+uploads/
+files/
+attachments/
+
+# Logs
+*.log
+server.log
+
+# Node & Frontend Build
+frontend/node_modules/
+frontend/dist/
+package-lock.json # from root, usually vite projects have this in frontend/
+
+# Python Cache & Build
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# OS / IDE Files
+.DS_Store
+.idea/
+.vscode/

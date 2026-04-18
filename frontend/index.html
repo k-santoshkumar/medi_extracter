@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MedExtract — Your Health Dashboard</title>
+  <meta name="description" content="Upload your medical records and get instant AI-powered biomarker extraction and trend visualization." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── Sidebar Navigation ─────────────────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <div class="logo-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          </svg>
+        </div>
+        <span class="logo-text">MedExtract</span>
+      </div>
+      <button class="sidebar-close" id="sidebarClose">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" data-section="dashboard" id="navDashboard">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+          <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+        </svg>
+        Dashboard
+      </a>
+      <a href="#" class="nav-item" data-section="reports" id="navReports">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+        </svg>
+        My Reports
+      </a>
+      <a href="#" class="nav-item" data-section="trends" id="navTrends">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        Trends
+      </a>
+      <a href="#" class="nav-item" data-section="upload" id="navUpload">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        Upload Record
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="ai-badge">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+        </svg>
+        Powered by Gemini 2.0
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Mobile Header ──────────────────────────────────────────────── -->
+  <header class="mobile-header">
+    <button class="hamburger" id="hamburger">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="logo">
+      <div class="logo-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+        </svg>
+      </div>
+      <span class="logo-text">MedExtract</span>
+    </div>
+    <button class="upload-fab-mobile" id="uploadBtnMobile">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+    </button>
+  </header>
+
+  <!-- ── Main Content ────────────────────────────────────────────────── -->
+  <main class="main-content">
+
+    <!-- ── Section: Dashboard ──────────────────────────────────────── -->
+    <section class="section active" id="sectionDashboard">
+      <div class="section-header">
+        <div>
+          <h1 class="section-title">Health Dashboard</h1>
+          <p class="section-subtitle" id="patientSubtitle">Loading your health data…</p>
+        </div>
+        <button class="btn-primary desktop-only" id="uploadBtnDesktop">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Add Record
+        </button>
+      </div>
+
+      <!-- Stats Row -->
+      <div class="stats-grid" id="statsGrid">
+        <div class="stat-card skeleton"></div>
+        <div class="stat-card skeleton"></div>
+        <div class="stat-card skeleton"></div>
+        <div class="stat-card skeleton"></div>
+      </div>
+
+      <!-- Latest Vitals -->
+      <div class="card-section">
+        <h2 class="card-section-title">Latest Vitals</h2>
+        <div class="vitals-grid" id="vitalsGrid">
+          <div class="vital-card skeleton"></div>
+          <div class="vital-card skeleton"></div>
+          <div class="vital-card skeleton"></div>
+          <div class="vital-card skeleton"></div>
+          <div class="vital-card skeleton"></div>
+          <div class="vital-card skeleton"></div>
+        </div>
+      </div>
+
+      <!-- Quick Chart -->
+      <div class="card-section">
+        <div class="chart-card">
+          <div class="chart-header">
+            <h2 class="card-section-title" style="margin:0">Biomarker Trend</h2>
+            <select class="marker-select" id="markerSelect">
+              <option value="">Select a marker…</option>
+            </select>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="trendChart"></canvas>
+            <div class="chart-empty" id="chartEmpty">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+              </svg>
+              <p>Select a biomarker to view its trend</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Section: Reports ─────────────────────────────────────────── -->
+    <section class="section" id="sectionReports">
+      <div class="section-header">
+        <div>
+          <h1 class="section-title">My Reports</h1>
+          <p class="section-subtitle">All uploaded medical records</p>
+        </div>
+      </div>
+      <div class="reports-list" id="reportsList">
+        <div class="report-card skeleton" style="height:80px"></div>
+        <div class="report-card skeleton" style="height:80px"></div>
+        <div class="report-card skeleton" style="height:80px"></div>
+      </div>
+    </section>
+
+    <!-- ── Section: Trends ──────────────────────────────────────────── -->
+    <section class="section" id="sectionTrends">
+      <div class="section-header">
+        <div>
+          <h1 class="section-title">All Trends</h1>
+          <p class="section-subtitle">Biomarker history over time</p>
+        </div>
+      </div>
+      <div class="trends-grid" id="trendsGrid">
+        <div class="chart-card skeleton" style="height:260px"></div>
+        <div class="chart-card skeleton" style="height:260px"></div>
+      </div>
+    </section>
+
+    <!-- ── Section: Upload ──────────────────────────────────────────── -->
+    <section class="section" id="sectionUpload">
+      <div class="section-header">
+        <div>
+          <h1 class="section-title">Upload Record</h1>
+          <p class="section-subtitle">Supports PDF, JPG, PNG — including camera photos</p>
+        </div>
+      </div>
+
+      <div class="upload-area" id="uploadArea">
+        <div class="upload-icon-wrap">
+          <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </div>
+        <h3 class="upload-title">Drag & Drop your report here</h3>
+        <p class="upload-subtitle">PDF, JPG, or PNG supported</p>
+
+        <div class="upload-actions">
+          <!-- Hidden file inputs -->
+          <input type="file" id="fileInput" accept=".pdf,.jpg,.jpeg,.png" style="display:none" />
+          <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none" />
+
+          <button class="btn-primary" id="browseBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            Browse Files
+          </button>
+          <button class="btn-secondary" id="cameraBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/>
+              <polygon points="11 3 7 7 11 7 11 3"/><circle cx="12" cy="13" r="4"/>
+            </svg>
+            Use Camera
+          </button>
+        </div>
+      </div>
+
+      <!-- Upload Progress -->
+      <div class="upload-progress-card" id="uploadProgress" style="display:none">
+        <div class="progress-header">
+          <span id="progressFileName" class="progress-filename">report.pdf</span>
+          <span id="progressStatus" class="progress-status">Extracting…</span>
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <p class="progress-hint">Gemini 2.0 Flash is reading your report…</p>
+      </div>
+
+      <!-- Preview: Extracted Data -->
+      <div class="preview-card" id="previewCard" style="display:none">
+        <div class="preview-header">
+          <h3 class="preview-title">Extracted Data — Please Verify</h3>
+          <button class="btn-primary" id="confirmBtn">Confirm & Save</button>
+        </div>
+        <div class="preview-meta" id="previewMeta"></div>
+        <div class="table-wrapper">
+          <table class="data-table" id="previewTable">
+            <thead>
+              <tr>
+                <th>Biomarker</th>
+                <th>Value</th>
+                <th>Unit</th>
+                <th>Reference Range</th>
+              </tr>
+            </thead>
+            <tbody id="previewBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Toast Notification ─────────────────────────────────────────── -->
+  <div class="toast" id="toast"></div>
+
+  <script type="module" src="/src/dashboard.js"></script>
+</body>
+</html>
