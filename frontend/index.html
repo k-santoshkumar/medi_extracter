@@ -9,12 +9,47 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-  <!-- ── Sidebar Navigation ─────────────────────────────────────────── -->
-  <aside class="sidebar" id="sidebar">
+  <!-- ── Authentication Container ───────────────────────────────────── -->
+  <div id="authContainer" style="display:flex; justify-content:center; align-items:center; height:100vh; background: var(--bg-body); padding: 20px;">
+    <div style="background:var(--bg-panel); padding:40px; border-radius:12px; width:100%; max-width:400px; box-shadow:0 10px 30px rgba(0,0,0,0.5);">
+      <div style="display:flex; justify-content:center; align-items:center; gap:10px; margin-bottom:20px;">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+        </svg>
+        <span style="font-size:1.5rem; font-weight:700; color:var(--text-1);">MedExtract</span>
+      </div>
+      <p style="text-align:center; color:var(--text-2); margin-bottom: 25px;">Please sign in to continue</p>
+      
+      <div id="authError" style="color:var(--red); font-size:0.9rem; margin-bottom:15px; text-align:center; display:none;"></div>
+      
+      <input type="email" id="authEmail" placeholder="Email Address" style="width:100%; padding:12px; margin-bottom:15px; border-radius:8px; border:1px solid var(--border); background:var(--bg-body); color:var(--text-1);" />
+      <input type="password" id="authPassword" placeholder="Password" style="width:100%; padding:12px; margin-bottom:20px; border-radius:8px; border:1px solid var(--border); background:var(--bg-body); color:var(--text-1);" />
+      
+      <button id="loginBtn" class="btn-primary" style="width:100%; justify-content:center; margin-bottom:10px;">Log In</button>
+      <button id="registerBtn" class="btn-secondary" style="width:100%; justify-content:center; margin-bottom:20px;">Create Account</button>
+      
+      <div style="display:flex; align-items:center; color:var(--text-3); font-size:0.8rem; margin-bottom:20px;">
+        <div style="flex:1; height:1px; background:var(--border);"></div>
+        <span style="padding:0 10px;">OR</span>
+        <div style="flex:1; height:1px; background:var(--border);"></div>
+      </div>
+      
+      <button id="googleAuthBtn" class="btn-secondary" style="width:100%; justify-content:center; gap:10px;">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="18" />
+        Continue with Google
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Main App Container ─────────────────────────────────────────── -->
+  <div id="appContainer" style="display:none; height:100vh;">
+    <!-- ── Sidebar Navigation ─────────────────────────────────────────── -->
+    <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <div class="logo">
         <div class="logo-icon">
@@ -63,6 +98,7 @@
     </nav>
 
     <div class="sidebar-footer">
+      <button id="logoutBtn" class="btn-secondary" style="width:100%; justify-content:center; margin-bottom:15px;">Log Out</button>
       <div class="ai-badge">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3"/>
@@ -261,9 +297,12 @@
 
   </main>
 
+  </div> <!-- End App Container -->
+
   <!-- ── Toast Notification ─────────────────────────────────────────── -->
   <div class="toast" id="toast"></div>
 
+  <script type="module" src="/src/auth.js"></script>
   <script type="module" src="/src/dashboard.js"></script>
 </body>
 </html>

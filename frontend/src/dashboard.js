@@ -1,6 +1,20 @@
 // ── Config ─────────────────────────────────────────────────────────
 const API_BASE = "https://medi-extracter.onrender.com";
 
+// Inject Supabase Auth Token into all fetch calls automatically
+const originalFetch = window.fetch;
+window.fetch = async function () {
+  let [resource, config] = arguments;
+  if (typeof resource === 'string' && resource.startsWith(API_BASE)) {
+    config = config || {};
+    config.headers = config.headers || {};
+    if (window.supabaseSession) {
+      config.headers["Authorization"] = `Bearer ${window.supabaseSession.access_token}`;
+    }
+  }
+  return originalFetch(resource, config);
+};
+
 // ── State ──────────────────────────────────────────────────────────
 let trendChartInstance = null;
 let allTrends = [];
