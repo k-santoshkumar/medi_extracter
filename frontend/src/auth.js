@@ -64,8 +64,16 @@ $("registerBtn")?.addEventListener("click", async () => {
 
 $("googleAuthBtn")?.addEventListener("click", async () => {
   hideErr();
+  
+  // Detect if app is running natively via Capacitor (which usually serves from http://localhost on Android)
+  const isNative = window.location.origin === "http://localhost" && /Android/i.test(navigator.userAgent);
+  const targetRedirect = isNative ? "com.ksk.medextract://" : window.location.origin;
+
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
+    options: {
+      redirectTo: targetRedirect
+    }
   });
   if (error) showErr(error.message);
 });
