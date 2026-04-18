@@ -1,4 +1,4 @@
-package com.example.app;
+package com.ksk.medextract;
 
 import com.getcapacitor.BridgeActivity;
 

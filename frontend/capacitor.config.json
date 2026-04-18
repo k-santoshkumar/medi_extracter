@@ -1,5 +1,5 @@
 {
-  "appId": "com.example.app",
+  "appId": "com.ksk.medextract",
   "appName": "medical-extraction-frontend",
   "webDir": "dist"
 }

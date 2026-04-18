@@ -1,4 +1,4 @@
-package com.getcapacitor.myapp;
+package com.ksk.medextract;
 
 import static org.junit.Assert.*;
 
