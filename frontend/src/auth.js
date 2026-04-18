@@ -1,6 +1,6 @@
 // We use the same Supabase URL and ANON KEY provided for your backend
 const SUPABASE_URL = "https://rfrrqpftkyhrkdgiugog.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_0cPnZA34zrWa9IgbISuI1w_qb7TM_AO";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJmcnJxcGZ0a3locmtkZ2l1Z29nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0OTEzMzgsImV4cCI6MjA5MjA2NzMzOH0.aGee8PqSjXC4AenFr142Vzy0y-Cb3pxonJmeGIEXjzg";
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 window.supabaseClient = supabase; 
