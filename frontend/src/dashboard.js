@@ -284,7 +284,7 @@ function renderVitals(vitals) {
   const grid = $("vitalsGrid");
   if (!grid) return;
 
-  if (vitals.length === 0) {
+  if (!vitals || !Array.isArray(vitals) || vitals.length === 0) {
     grid.innerHTML = `<p style="grid-column:1/-1; color:var(--text-3); text-align:center; padding:20px;">No markers found yet.</p>`;
     hide($("healthSummaryCard"));
     return;

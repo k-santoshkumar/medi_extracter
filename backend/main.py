@@ -264,7 +264,7 @@ def get_dashboard_stats():
                 "total_markers": 0,
                 "latest_report_date": None,
                 "patient_name": None,
-                "latest_vitals": {},
+                "latest_vitals": [],
                 "trends": []
             })
             

@@ -145,7 +145,8 @@ def extract_data_from_document(file_path):
             
             if len(text.strip()) < 100:
                 logger.info("Text content too short or empty. Falling back to Vision (OCR)...")
-                return extract_data_from_images(file_path, is_pdf=True)
+                df = extract_data_from_images(file_path, is_pdf=True)
+                return df_to_result_dict(df)
             
             logger.info("Sending text to LLM for extraction...")
             response = llm.invoke(EXTRACTION_PROMPT + text).content
@@ -154,12 +155,14 @@ def extract_data_from_document(file_path):
             df = markdown_to_df(response)
             if df.empty:
                 logger.warning("Markdown parsing returned empty DataFrame. Falling back to Vision...")
-                return extract_data_from_images(file_path, is_pdf=True)
+                df = extract_data_from_images(file_path, is_pdf=True)
+                return df_to_result_dict(df)
                 
             return df_to_result_dict(df)
         except Exception as e:
             logger.error(f"Text-based PDF extraction failed: {e}. Falling back to Vision.")
-            return extract_data_from_images(file_path, is_pdf=True)
+            df = extract_data_from_images(file_path, is_pdf=True)
+            return df_to_result_dict(df)
         
     elif file_ext in [".jpg", ".jpeg", ".png"]:
         logger.info(f"Image detected ({file_ext}). Using Vision pipeline.")
@@ -171,15 +174,17 @@ def extract_data_from_document(file_path):
         raise ValueError(f"Unsupported file format: {file_ext}")
 
 def pdf_to_images(pdf_path):
-    """Converts PDF pages to base64 encoded PNG images."""
+    """Converts PDF pages to base64 encoded PNG images with memory optimization."""
     logger.info(f"pdf_to_images: Converting {pdf_path}")
     try:
-        pages = convert_from_path(pdf_path)
+        # Use 150 DPI instead of default 200/300 to stay within Render memory limits
+        pages = convert_from_path(pdf_path, dpi=150)
         logger.info(f"Converted PDF to {len(pages)} images.")
         images_base64 = []
         for page in pages:
             buf = io.BytesIO()
-            page.save(buf, format="PNG")
+            # Optimize image quality to reduce base64 string size
+            page.save(buf, format="JPEG", quality=80) 
             images_base64.append(base64.b64encode(buf.getvalue()).decode('utf-8'))
         return images_base64
     except Exception as e:
