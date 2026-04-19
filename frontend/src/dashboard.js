@@ -434,7 +434,6 @@ function renderVitals(vitals) {
           summaryCard.style.background = "var(--accent-glow)";
           summaryCard.style.borderColor = "var(--accent)";
       }
-      }
   }
 }
 
