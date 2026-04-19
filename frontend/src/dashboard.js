@@ -22,7 +22,6 @@ let trendChartInstance = null;
 let allTrends = [];
 let pendingReportData = null;
 let currentFileUrl = null;
-let stagedFile = null;
 
 // ── DOM Helpers ────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
@@ -155,68 +154,73 @@ $("logoutBtnMobile")?.addEventListener("click", () => window.supabaseClient.auth
 $("browseBtn")?.addEventListener("click",  () => $("fileInput").click());
 $("cameraBtn")?.addEventListener("click",  () => $("cameraInput").click());
 
-$("fileInput")?.addEventListener("change", (e) => stageFile(e.target.files[0]));
-$("cameraInput")?.addEventListener("change", (e) => stageFile(e.target.files[0]));
+$("fileInput")?.addEventListener("change", (e) => stageFiles(e.target.files));
+$("cameraInput")?.addEventListener("change", (e) => stageFiles(e.target.files));
 
-$("submitUploadBtn")?.addEventListener("click", () => submitFile());
-$("cancelUploadBtn")?.addEventListener("click", () => {
-    stagedFile = null;
-    hide($("pendingUpload"));
-    show($("uploadArea"));
-});
-
-// ── File Upload Flow ───────────────────────────────────────────────
-function stageFile(file) {
-  if (!file) return;
+// ── Sequential Queue Logic ──────────────────────────────────────────
+async function stageFiles(files) {
+  if (!files || files.length === 0) return;
   
-  const allowed = ["application/pdf", "image/jpeg", "image/jpg", "image/png"];
-  if (!allowed.includes(file.type)) {
-    showToast("Unsupported file type. Use PDF, JPG, or PNG.", "error");
+  show($("pendingUpload"));
+  hide($("uploadArea"));
+  hide($("previewCard"));
+
+  for (const file of files) {
+    const id = Math.random().toString(36).substr(2, 9);
+    uploadQueue.push({ id, file, status: 'staged', result: null });
+    renderQueueItem({ id, file, status: 'staged' });
+  }
+
+  updateQueueHeader();
+  if (!isProcessing) processQueue();
+}
+
+function renderQueueItem(item) {
+  const list = $("queueList");
+  const card = document.createElement("div");
+  card.id = `queue-item-${item.id}`;
+  card.className = "stat-card";
+  card.style = "display:flex; align-items:center; justify-content:space-between; margin-bottom:0px; border-color:var(--border); padding:12px 16px;";
+  
+  const isImage = item.file.type.startsWith("image/");
+  const icon = isImage 
+    ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`
+    : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
+
+  card.innerHTML = `
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div style="background:var(--bg-input); color:var(--text-3); padding:8px; border-radius:10px;">${icon}</div>
+      <div>
+        <div style="font-weight:700; color:var(--text-1); font-size:0.85rem; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.file.name}</div>
+        <div class="status-text" style="font-size:0.7rem; color:var(--text-3);">Waiting...</div>
+      </div>
+    </div>
+    <div class="status-indicator">
+       <div class="spinner-small" style="display:none"></div>
+       <div class="check-mark" style="display:none; color:var(--green); font-weight:800;">✓</div>
+    </div>
+  `;
+  list.appendChild(card);
+}
+
+async function processQueue() {
+  const item = uploadQueue.find(i => i.status === 'staged');
+  if (!item) {
+    isProcessing = false;
+    showToast(`Processed ${completedCount} reports!`, "success");
     return;
   }
 
-  stagedFile = file;
-  
-  // Update Staged UI
-  if ($("stagedFileName")) $("stagedFileName").textContent = file.name;
-  if ($("stagedFileSize")) $("stagedFileSize").textContent = `${(file.size / (1024 * 1024)).toFixed(2)} MB • Ready for analysis`;
-  
-  // Icon update
-  const isImage = file.type.startsWith("image/");
-  if ($("fileTypeIcon")) {
-      $("fileTypeIcon").innerHTML = isImage 
-        ? `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`
-        : `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
-  }
-
-  hide($("uploadArea"));
-  show($("pendingUpload"));
-  hide($("previewCard"));
-  
-  triggerHaptic("light");
-}
-
-async function submitFile() {
-  if (!stagedFile) return;
-
-  const file = stagedFile;
-  console.log(">>> Submitting file for analysis:", file.name);
-
-  show($("loadingOverlay"));
-  triggerHaptic("heavy");
+  isProcessing = true;
+  item.status = 'processing';
+  updateItemStatusUI(item.id, 'Analyzing...', true);
 
   try {
-    let fileToUpload = file;
-    
-    // Client-side reduction for images
-    if (file.type.startsWith("image/") && file.size > 1024 * 1024) {
-      console.log("Optimizing large image client-side...");
-      fileToUpload = await compressImage(file);
-      console.log("Reduced size from", file.size, "to", fileToUpload.size);
+    let fileToUpload = item.file;
+    if (item.file.type.startsWith("image/") && item.file.size > 1024 * 1024) {
+      updateItemStatusUI(item.id, 'Optimizing...', true);
+      fileToUpload = await compressImage(item.file);
     }
-
-    if (currentFileUrl) URL.revokeObjectURL(currentFileUrl);
-    currentFileUrl = URL.createObjectURL(fileToUpload);
 
     const formData = new FormData();
     formData.append("file", fileToUpload);
@@ -227,35 +231,44 @@ async function submitFile() {
     });
 
     if (!response.ok) {
-      let detail = "Upload failed";
+      let detail = "Failed";
       try {
         const err = await response.json();
         detail = err.detail || detail;
-      } catch (e) {
-        detail = `Server Error (${response.status}). The report might be too large or complex.`;
-      }
+      } catch (e) {}
       throw new Error(detail);
     }
 
     const result = await response.json();
-    triggerHaptic("success");
-    showToast("✓ Extraction complete!", "success");
     
+    if (result.extraction_error) {
+        item.status = 'partial';
+        updateItemStatusUI(item.id, 'Saved (Manual)', false, true);
+        showToast(`Report saved, but AI couldn't read all details.`, "info");
+    } else {
+        item.status = 'done';
+        updateItemStatusUI(item.id, 'Complete', false, true);
+        showToast("✓ Extraction complete!", "success");
+    }
+    
+    item.result = result;
+    completedCount++;
+    triggerHaptic("success");
+
+    // Preview the latest result
     renderPreview(result.extracted, fileToUpload.type);
     show($("previewCard"));
     $("previewCard").scrollIntoView({ behavior: 'smooth' });
 
-    // Success - reset staged state
-    stagedFile = null;
-    hide($("pendingUpload"));
-    show($("uploadArea"));
-
   } catch (err) {
-    console.error("Analysis Failed:", err);
-    showToast(`Error: ${err.message}`, "error");
-  } finally {
-    hide($("loadingOverlay"));
+    console.error("Queue item failed:", err);
+    item.status = 'error';
+    updateItemStatusUI(item.id, 'Failed', false, false, true);
+    showToast(`Upload failed: ${err.message}`, "error");
   }
+
+  updateQueueHeader();
+  processQueue(); // Loop to next
 }
 
 // ── Preview Extracted Data ─────────────────────────────────────────
@@ -416,12 +429,37 @@ function renderVitals(vitals) {
       if (outOfRangeCount > 0) {
           summaryText.textContent = `Your latest report shows ${outOfRangeCount} biomarker${outOfRangeCount > 1 ? 's' : ''} outside standard reference ranges. Please review with your physician.`;
           summaryCard.style.background = "rgba(244, 63, 94, 0.1)";
-          summaryCard.style.borderColor = "var(--red)";
       } else {
           summaryText.textContent = "All your latest biomarkers are within standard reference ranges. Great job maintaining your health trends!";
           summaryCard.style.background = "var(--accent-glow)";
           summaryCard.style.borderColor = "var(--accent)";
       }
+      }
+  }
+}
+
+function updateItemStatusUI(id, text, showSpinner = false, isDone = false, isError = false) {
+  const card = $(`queue-item-${id}`);
+  if (!card) return;
+  card.querySelector(".status-text").textContent = text;
+  card.querySelector(".spinner-small").style.display = showSpinner ? "block" : "none";
+  card.querySelector(".check-mark").style.display = isDone ? "block" : "none";
+  
+  if (isDone) {
+    const isPartial = text.includes("Manual");
+    card.style.borderColor = isPartial ? "#f59e0b" : "var(--green)";
+    card.style.background = isPartial ? "rgba(245, 158, 11, 0.05)" : "var(--accent-glow)";
+    if (isPartial) card.querySelector(".check-mark").style.color = "#f59e0b";
+  }
+  if (isError) {
+    card.style.borderColor = "var(--red)";
+    card.querySelector(".status-text").style.color = "var(--red)";
+  }
+}
+
+function updateQueueHeader() {
+  if ($("queueProgress")) {
+    $("queueProgress").textContent = `${completedCount}/${uploadQueue.length} Complete`;
   }
 }
 

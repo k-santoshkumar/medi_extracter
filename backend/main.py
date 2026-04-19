@@ -169,35 +169,47 @@ def upload_medical_record():
     logger.info(f"Saving file to: {local_path}")
     file.save(local_path)
     
+    extracted_data = {}
+    extraction_error = None
+    
+    # 1. Attempt AI Extraction
     try:
         logger.info(f"Starting extraction for: {unique_filename}")
-        # Extract data using AI
         extracted_data = extract_data_from_document(local_path)
         logger.info(f"Extraction successful for {unique_filename}")
-        
-        # Save to Supabase
+    except Exception as e:
+        logger.warning(f"AI Extraction failed/timed out for {unique_filename}: {str(e)}")
+        extraction_error = str(e)
+        # Fallback metadata for manual records
+        extracted_data = {
+            "patient_name": "Manual Record",
+            "report_date": datetime.datetime.now().strftime("%Y-%m-%d"),
+            "lab_name": "Unextracted",
+            "biomarkers": []
+        }
+    
+    # 2. Always persist the report record in Supabase
+    try:
         report_payload = {
             "filename": file.filename,
-            "patient_name": extracted_data.get("patient_name"),
-            "report_date": extracted_data.get("report_date"),
-            "lab_name": extracted_data.get("lab_name"),
+            "patient_name": extracted_data.get("patient_name") or "Manual Entry",
+            "report_date": extracted_data.get("report_date") or datetime.datetime.now().strftime("%Y-%m-%d"),
+            "lab_name": extracted_data.get("lab_name") or "Upload",
             "doctor_name": extracted_data.get("doctor_name"),
             "file_path": unique_filename
         }
         
-        logger.info(f"Inserting report into Supabase: {report_payload['filename']}")
+        logger.info(f"Inserting resilient report: {report_payload['filename']}")
         report_res = supabase.table("reports").insert(report_payload).execute()
         
         if not report_res.data:
-            raise Exception("Failed to insert report into Supabase")
+            raise Exception("Database insertion failed")
             
         report_id = report_res.data[0]["id"]
-        logger.info(f"Report created with ID: {report_id}")
         
-        # 2. Normalize and Save Biomarkers
+        # 3. Handle Biomarkers if available
         biomarkers = extracted_data.get("biomarkers", [])
         if biomarkers:
-            logger.info(f"Processing {len(biomarkers)} biomarkers")
             marker_names = [b["marker_name"] for b in biomarkers]
             norm_map = normalize_biomarker_names(marker_names)
             
@@ -211,19 +223,18 @@ def upload_medical_record():
                     "unit": b.get("unit"),
                     "reference_range": b.get("reference_range")
                 })
-            
-            logger.info(f"Inserting biomarkers for report {report_id}")
             supabase.table("biomarkers").insert(biomarker_payloads).execute()
         
-        logger.info(f"<<< Upload and processing complete for {unique_filename}")
         return jsonify({
             "report_id": report_id,
-            "extracted": extracted_data
+            "extracted": extracted_data,
+            "extraction_error": extraction_error,
+            "status": "success" if not extraction_error else "partial_success"
         })
         
     except Exception as e:
-        logger.exception(f"CRITICAL: Upload processing failed for {unique_filename}")
-        return jsonify({"detail": str(e)}), 500
+        logger.exception(f"DATABASE ERROR: Failed to save record for {unique_filename}")
+        return jsonify({"detail": f"Database error: {str(e)}"}), 500
 
 
 @app.route("/api/v1/reports", methods=["GET"])
