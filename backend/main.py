@@ -2,6 +2,7 @@ import os
 import shutil
 import uuid
 import datetime
+import logging
 from typing import List, Optional
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -9,20 +10,52 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from backend.services.extraction_service import extract_data_from_document
-from backend.services.normalization_service import normalize_biomarker_names
+# Service imports
+try:
+    from backend.services.extraction_service import extract_data_from_document
+    from backend.services.normalization_service import normalize_biomarker_names
+except ImportError:
+    # Fallback for different import paths
+    from services.extraction_service import extract_data_from_document
+    from services.normalization_service import normalize_biomarker_names
 
 # ── App Setup ────────────────────────────────────────────────────────────────
 load_dotenv()
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Point static_folder to the frontend build directory
-app = Flask(__name__, static_folder="../frontend/dist", static_url_path="/")
+# We look for 'dist' folder in multiple common locations
+static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/dist"))
+if not os.path.exists(static_dir):
+    static_dir = os.path.abspath(os.path.join(os.getcwd(), "frontend/dist"))
+
+logger.info(f"Serving static files from: {static_dir}")
+
+app = Flask(__name__, static_folder=static_dir, static_url_path="/")
 CORS(app)
 
+# ── Supabase Setup ───────────────────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-UPLOAD_DIR = "./uploads"
+supabase = None
+supabase_error = None
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    supabase_error = "SUPABASE_URL or SUPABASE_KEY is not set in environment variables."
+    logger.error(supabase_error)
+else:
+    try:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        logger.info("Supabase client initialized successfully.")
+    except Exception as e:
+        supabase_error = f"Failed to initialize Supabase client: {str(e)}"
+        logger.error(supabase_error)
+
+UPLOAD_DIR = os.path.abspath("./uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
@@ -48,22 +81,12 @@ class ReportOut(BaseModel):
     lab_name: Optional[str] = None
     doctor_name: Optional[str] = None
     upload_date: datetime.datetime
-    biomarkers: List[BiomarkerOut] = []
-
-    class Config:
-        from_attributes = True
-
-
-class TrendPoint(BaseModel):
-    report_date: str
-    value: str
-    lab_name: str
 
 
 class MarkerTrend(BaseModel):
-    marker_name: str
+    date: str
+    value: float
     unit: str
-    data: List[TrendPoint]
 
 
 class DashboardStats(BaseModel):
@@ -76,263 +99,221 @@ class DashboardStats(BaseModel):
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
-@app.route("/")
-def root():
-    # Serve the frontend index.html
-    return send_from_directory(app.static_folder, "index.html")
-
-@app.route("/uploads/<path:filename>")
-def serve_uploads(filename):
-    return send_from_directory(UPLOAD_DIR, filename)
-
 
 @app.route("/health", methods=["GET"])
 def health_check():
-    try:
-        # Perform a lightweight query to test Supabase DB connectivity
-        supabase.table("reports").select("id").limit(1).execute()
-        db_status = "connected"
-        status_code = 200
-    except Exception as e:
-        db_status = f"disconnected: {str(e)}"
+    db_status = "unknown"
+    status_code = 200
+    details = {}
+
+    if supabase_error:
+        db_status = f"error: {supabase_error}"
         status_code = 503
+    elif not supabase:
+        db_status = "error: Supabase client not initialized"
+        status_code = 503
+    else:
+        try:
+            # Lightweight connectivity check
+            supabase.table("reports").select("id").limit(1).execute()
+            db_status = "connected"
+        except Exception as e:
+            db_status = f"disconnected: {str(e)}"
+            status_code = 503
 
     return jsonify({
         "status": "ok" if status_code == 200 else "error",
         "service": "MedExtract API",
-        "supabase_db": db_status
+        "supabase_db": db_status,
+        "environment": {
+            "SUPABASE_URL_SET": bool(SUPABASE_URL),
+            "SUPABASE_KEY_SET": bool(SUPABASE_KEY),
+            "GOOGLE_API_KEY_SET": bool(os.environ.get("GOOGLE_API_KEY")),
+            "PORT": os.environ.get("PORT", "default (10000)")
+        }
     }), status_code
+
+
+@app.route("/")
+def serve_index():
+    if os.path.exists(os.path.join(app.static_folder, "index.html")):
+        return send_from_directory(app.static_folder, "index.html")
+    return jsonify({"error": "Frontend build not found. Please run 'npm run build' in the frontend directory."}), 404
 
 
 @app.route("/api/v1/upload", methods=["POST"])
 def upload_medical_record():
+    if not supabase:
+        return jsonify({"detail": "Backend not properly configured with Supabase"}), 500
+        
     if "file" not in request.files:
         return jsonify({"detail": "No file part"}), 400
     
     file = request.files["file"]
     if file.filename == "":
         return jsonify({"detail": "No selected file"}), 400
-        
+    
+    # Save locally
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
-        return jsonify({"detail": f"Unsupported file type '{ext}'. Allowed: PDF, JPG, PNG"}), 400
-
-    # Save uploaded file
-    unique_name = f"{uuid.uuid4()}{ext}"
-    file_path = os.path.join(UPLOAD_DIR, unique_name)
-    file.save(file_path)
-
-    # Extract biomarkers using Gemini
-    try:
-        df = extract_data_from_document(file_path)
-    except Exception as e:
-        if os.path.exists(file_path):
-            os.remove(file_path)  # Cleanup on failure
-        return jsonify({"detail": f"Extraction failed: {str(e)}"}), 500
-
-    if df.empty:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        return jsonify({"detail": "Could not extract data. Please ensure this is a valid medical report."}), 422
-
-    # Normalize biomarker columns
-    META_COLS = {"patient_name", "report_date", "lab_name", "doctor_name"}
-    biomarker_cols = [c for c in df.columns if str(c).lower() not in META_COLS]
-    col_map = normalize_biomarker_names(biomarker_cols)
-
-    is_long_format = "marker_name" in df.columns and "value" in df.columns
-    first_row = df.iloc[0] if not df.empty else {}
-
-    patient_name = str(first_row.get("patient_name", "N/A")).strip() if "patient_name" in first_row else "N/A"
-    report_date  = str(first_row.get("report_date", "N/A")).strip() if "report_date" in first_row else "N/A"
-    lab_name     = str(first_row.get("lab_name", "N/A")).strip() if "lab_name" in first_row else "N/A"
-    doctor_name  = str(first_row.get("doctor_name", "N/A")).strip() if "doctor_name" in first_row else "N/A"
-
-    try:
-        report_data = {
-            "filename": file.filename,
-            "patient_name": patient_name,
-            "report_date": report_date,
-            "lab_name": lab_name,
-            "doctor_name": doctor_name,
-            "file_path": file_path,
-            "upload_date": datetime.datetime.utcnow().isoformat()
-        }
-        res = supabase.table("reports").insert(report_data).execute()
-        if not res.data:
-            raise Exception("Failed to insert report into Supabase")
-        report = res.data[0]
-        report_id = report["id"]
-
-        biomarkers_to_insert = []
-        if is_long_format:
-            for _, row in df.iterrows():
-                original = str(row.get("marker_name", "")).strip()
-                if not original or original.lower() == "n/a":
-                    continue
-                normalized = col_map.get(original, original)
-                if normalized.lower() == "ignore":
-                    continue
-                biomarkers_to_insert.append({
-                    "report_id": report_id,
-                    "marker_name": normalized,
-                    "original_name": original,
-                    "value": str(row.get("value", "N/A")).strip(),
-                    "unit": str(row.get("unit", "")).strip(),
-                    "reference_range": str(row.get("reference_range", "")).strip()
-                })
-        else:
-            for original_col in biomarker_cols:
-                normalized = col_map.get(original_col, str(original_col))
-                if normalized.lower() == "ignore":
-                    continue
-                for _, row in df.iterrows():
-                    val = str(row.get(original_col, "N/A")).strip()
-                    if val and val.lower() not in ("n/a", "nan", ""):
-                        biomarkers_to_insert.append({
-                            "report_id": report_id,
-                            "marker_name": normalized,
-                            "original_name": str(original_col),
-                            "value": val,
-                            "unit": "",
-                            "reference_range": ""
-                        })
-
-        if biomarkers_to_insert:
-            supabase.table("biomarkers").insert(biomarkers_to_insert).execute()
+        return jsonify({"detail": "Unsupported file type"}), 400
         
-        final_res = supabase.table("reports").select("*, biomarkers(*)").eq("id", report_id).single().execute()
-        result = ReportOut.model_validate(final_res.data).model_dump(mode="json")
-        return jsonify(result), 201
-
+    unique_filename = f"{uuid.uuid4()}{ext}"
+    local_path = os.path.join(UPLOAD_DIR, unique_filename)
+    file.save(local_path)
+    
+    try:
+        # Extract data using Gemini
+        extracted_data = extract_data_from_document(local_path)
+        
+        # Save to Supabase
+        # 1. Create Report
+        report_payload = {
+            "filename": file.filename,
+            "patient_name": extracted_data.get("patient_name"),
+            "report_date": extracted_data.get("report_date"),
+            "lab_name": extracted_data.get("lab_name"),
+            "doctor_name": extracted_data.get("doctor_name"),
+            "file_path": unique_filename
+        }
+        
+        report_res = supabase.table("reports").insert(report_payload).execute()
+        report_id = report_res.data[0]["id"]
+        
+        # 2. Normalize and Save Biomarkers
+        biomarkers = extracted_data.get("biomarkers", [])
+        if biomarkers:
+            # Extract marker names for normalization
+            marker_names = [b["marker_name"] for b in biomarkers]
+            norm_map = normalize_biomarker_names(marker_names)
+            
+            biomarker_payloads = []
+            for b in biomarkers:
+                biomarker_payloads.append({
+                    "report_id": report_id,
+                    "marker_name": norm_map.get(b["marker_name"], b["marker_name"]),
+                    "original_name": b["marker_name"],
+                    "value": str(b["value"]),
+                    "unit": b.get("unit"),
+                    "reference_range": b.get("reference_range")
+                })
+            
+            supabase.table("biomarkers").insert(biomarker_payloads).execute()
+        
+        return jsonify({
+            "report_id": report_id,
+            "extracted": extracted_data
+        })
+        
     except Exception as e:
-        return jsonify({"detail": f"Database error: {str(e)}"}), 500
+        logger.exception("Upload processing failed")
+        return jsonify({"detail": str(e)}), 500
 
 
 @app.route("/api/v1/reports", methods=["GET"])
 def list_reports():
+    if not supabase: return jsonify([]), 500
     try:
-        res = supabase.table("reports").select("*, biomarkers(*)").order("upload_date", desc=True).execute()
-        result = [ReportOut.model_validate(r).model_dump(mode="json") for r in res.data]
-        return jsonify(result), 200
+        res = supabase.table("reports").select("*").order("upload_date", desc=True).execute()
+        return jsonify(res.data)
     except Exception as e:
         return jsonify({"detail": str(e)}), 500
 
 
 @app.route("/api/v1/reports/<int:report_id>", methods=["GET"])
-def get_report(report_id):
+def get_report_details(report_id):
+    if not supabase: return jsonify({}), 500
     try:
-        res = supabase.table("reports").select("*, biomarkers(*)").eq("id", report_id).maybe_single().execute()
-        if not res.data:
-            return jsonify({"detail": "Report not found"}), 404
-        result = ReportOut.model_validate(res.data).model_dump(mode="json")
-        return jsonify(result), 200
-    except Exception as e:
-        return jsonify({"detail": str(e)}), 500
-
-
-@app.route("/api/v1/biomarkers/<int:biomarker_id>", methods=["PUT"])
-def update_biomarker(biomarker_id):
-    try:
-        data = request.get_json(silent=True) or request.args
-        update_data = {}
-        if "value" in data:
-            update_data["value"] = data["value"]
-        if "unit" in data:
-            update_data["unit"] = data["unit"]
-            
-        res = supabase.table("biomarkers").update(update_data).eq("id", biomarker_id).execute()
-        if not res.data:
-            return jsonify({"detail": "Biomarker not found"}), 404
-        return jsonify({"status": "updated", "id": biomarker_id}), 200
-    except Exception as e:
-        return jsonify({"detail": str(e)}), 500
-
-
-@app.route("/api/v1/reports/<int:report_id>", methods=["DELETE"])
-def delete_report(report_id):
-    try:
-        res = supabase.table("reports").select("file_path").eq("id", report_id).maybe_single().execute()
-        if not res.data:
-            return jsonify({"detail": "Report not found"}), 404
+        report_res = supabase.table("reports").select("*").eq("id", report_id).single().execute()
+        biomarkers_res = supabase.table("biomarkers").select("*").eq("report_id", report_id).execute()
         
-        file_path = res.data.get("file_path")
-        if file_path and os.path.exists(file_path):
-            os.remove(file_path)
-            
-        supabase.table("reports").delete().eq("id", report_id).execute()
-        return jsonify({"status": "deleted"}), 200
+        return jsonify({
+            "report": report_res.data,
+            "biomarkers": biomarkers_res.data
+        })
     except Exception as e:
         return jsonify({"detail": str(e)}), 500
 
 
 @app.route("/api/v1/dashboard/stats", methods=["GET"])
 def get_dashboard_stats():
+    if not supabase: return jsonify({}), 500
     try:
-        reports_res = supabase.table("reports").select("*").execute()
-        total_reports = len(reports_res.data)
+        # 1. Total Reports
+        reports_res = supabase.table("reports").select("*", count="exact").execute()
+        total_reports = reports_res.count if reports_res.count is not None else len(reports_res.data)
         
-        bm_res = supabase.table("biomarkers").select("id, marker_name, value, unit, reports(report_date, lab_name)").execute()
-        total_markers = len(bm_res.data)
-
-        latest_report_date = None
-        patient_name = None
-        if reports_res.data:
-            sorted_reports = sorted(reports_res.data, key=lambda x: x.get("report_date") or "", reverse=True)
-            latest_report_date = sorted_reports[0].get("report_date")
-            patient_name = sorted_reports[0].get("patient_name")
-
-        latest_vitals = {}
-        trends_dict = {}
-
-        for bm in bm_res.data:
-            m_name = bm.get("marker_name")
-            v = bm.get("value")
-            unit = bm.get("unit") or ""
-            r_data = bm.get("reports") or {}
+        if total_reports == 0:
+            return jsonify({
+                "total_reports": 0,
+                "total_markers": 0,
+                "latest_report_date": None,
+                "patient_name": None,
+                "latest_vitals": {},
+                "trends": []
+            })
             
-            # PostgREST may return list of dicts for one-to-many or dict for many-to-one
-            if isinstance(r_data, list) and r_data:
-                r_data = r_data[0]
+        # 2. Total Markers
+        markers_res = supabase.table("biomarkers").select("id", count="exact").execute()
+        total_markers = markers_res.count if markers_res.count is not None else len(markers_res.data)
+        
+        # 3. Latest Report info
+        latest_report = reports_res.data[0] # Assumes ordered by date or similar
+        
+        # 4. Latest Vitals (e.g., markers from the latest report)
+        latest_vitals_res = supabase.table("biomarkers").select("*").eq("report_id", latest_report["id"]).execute()
+        
+        return jsonify({
+            "total_reports": total_reports,
+            "total_markers": total_markers,
+            "latest_report_date": latest_report["report_date"],
+            "patient_name": latest_report["patient_name"],
+            "latest_vitals": latest_vitals_res.data,
+            "trends": [] # Placeholder for future logic
+        })
+    except Exception as e:
+        logger.exception("Dashboard stats failed")
+        return jsonify({"detail": str(e)}), 500
+
+@app.route("/api/v1/trends/<marker_name>", methods=["GET"])
+def get_marker_trends(marker_name):
+    if not supabase: return jsonify([]), 500
+    try:
+        # Join biomarkers with reports to get dates
+        res = supabase.table("biomarkers") \
+            .select("value, unit, reports(report_date)") \
+            .eq("marker_name", marker_name) \
+            .execute()
             
-            r_date = r_data.get("report_date") if isinstance(r_data, dict) else ""
-            l_name = r_data.get("lab_name") if isinstance(r_data, dict) else ""
-
-            if not r_date: r_date = ""
-            if not l_name: l_name = ""
-
-            if m_name not in latest_vitals:
-                latest_vitals[m_name] = {"date": r_date, "value": v, "unit": unit}
-            else:
-                if r_date > latest_vitals[m_name]["date"]:
-                    latest_vitals[m_name] = {"date": r_date, "value": v, "unit": unit}
-                    
-            if m_name not in trends_dict:
-                trends_dict[m_name] = {"unit": unit, "data": []}
-                
-            val_to_check = str(v).lower() if v is not None else ""
-            if v and val_to_check not in ("n/a", "nan", "none", ""):
-                trends_dict[m_name]["data"].append({
-                    "report_date": r_date,
-                    "value": str(v),
-                    "lab_name": l_name
-                })
-
         trends = []
-        for m_name, t_data in trends_dict.items():
-            if t_data["data"]:
-                t_data["data"].sort(key=lambda x: x["report_date"])
-                trends.append(MarkerTrend(marker_name=m_name, unit=t_data["unit"], data=t_data["data"]))
-
-        stats = DashboardStats(
-            total_reports=total_reports,
-            total_markers=total_markers,
-            latest_report_date=latest_report_date,
-            patient_name=patient_name,
-            latest_vitals=latest_vitals,
-            trends=trends,
-        )
-        return jsonify(stats.model_dump(mode="json")), 200
-
+        for row in res.data:
+            try:
+                # Basic numeric extraction for charting
+                clean_val = re.sub(r'[^\d.]', '', row["value"])
+                val = float(clean_val) if clean_val else 0.0
+                trends.append({
+                    "date": row["reports"]["report_date"],
+                    "value": val,
+                    "unit": row["unit"]
+                })
+            except: continue
+            
+        # Sort by date
+        trends.sort(key=lambda x: x["date"])
+        return jsonify(trends)
     except Exception as e:
         return jsonify({"detail": str(e)}), 500
+
+@app.route("/uploads/<path:filename>")
+def serve_uploads_api(filename):
+    return send_from_directory(UPLOAD_DIR, filename)
+
+@app.route("/<path:path>")
+def serve_static(path):
+    if os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, "index.html")
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port, debug=True)

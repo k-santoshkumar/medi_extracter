@@ -31,5 +31,10 @@ COPY . .
 # Expose the port the app runs on
 EXPOSE 10000
 
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
 # Command to run the application
-CMD gunicorn -w 4 -b 0.0.0.0:${PORT:-10000} backend.main:app
+# We use a single worker for better debugging on Render, but can be scaled
+CMD gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 2 --timeout 120 --access-logfile - --error-logfile - backend.main:app
