@@ -136,9 +136,12 @@ p  { font-size: 0.95rem; line-height: 1.6; color: var(--text-2); }
   color: white;
   box-shadow: 0 10px 20px var(--accent-glow);
   border: 4px solid var(--bg);
-  transition: var(--transition);
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
 }
-.fab-inner:active { transform: scale(0.9); }
+.fab-inner:active { 
+  transform: scale(0.85) rotate(-5deg); 
+  box-shadow: 0 4px 8px var(--accent-glow);
+}
 
 /* ── Sidebar (Desktop) ─────────────────────────────────────────────── */
 .sidebar { display: none; }
@@ -287,11 +290,53 @@ p  { font-size: 0.95rem; line-height: 1.6; color: var(--text-2); }
 }
 
 /* ── Table & Preview ────────────────────────────────────────────────── */
+.side-by-side-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
+@media (min-width: 1024px) {
+  .side-by-side-layout { grid-template-columns: 1fr 1fr; }
+}
+
+.preview-file-container {
+  background: var(--bg-input);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  max-height: 600px;
+  overflow-y: auto;
+}
+.file-preview-window {
+  background: var(--bg);
+  border-radius: 8px;
+  min-height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+}
+
+.preview-data-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.confidence-low {
+  background: rgba(245, 158, 11, 0.08) !important;
+}
+.confidence-low td {
+  border-top-color: rgba(245, 158, 11, 0.2) !important;
+}
+.confidence-low .marker-name {
+  color: var(--amber) !important;
+}
+
 .table-wrapper { 
   overflow-x: auto; 
   border-radius: 12px; 
   border: 1px solid var(--border);
-  margin-top: 20px;
+  margin-top: 0;
 }
 .data-table { width: 100%; border-collapse: collapse; text-align: left; }
 .data-table th { 
@@ -302,19 +347,21 @@ p  { font-size: 0.95rem; line-height: 1.6; color: var(--text-2); }
   color: var(--text-3); 
   text-transform: uppercase; 
 }
-.data-table tr { border-bottom: 1px solid var(--border); }
+.data-table tr { border-bottom: 1px solid var(--border); transition: background-color 0.2s; }
 .data-table tr:last-child { border-bottom: none; }
+.data-table tr:hover { background: var(--bg-input); }
 
 .preview-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 20px;
+  gap: 15px;
   background: var(--bg-input);
-  padding: 16px;
+  padding: 14px;
   border-radius: 12px;
-  margin: 15px 0;
+  margin-bottom: 15px;
+  border: 1px solid var(--border);
 }
-.meta-item { display: flex; flex-direction: column; gap: 4px; }
+.meta-item { display: flex; flex-direction: column; gap: 2px; }
 
 /* ── Toast ──────────────────────────────────────────────────────────── */
 .toast {
@@ -334,12 +381,25 @@ p  { font-size: 0.95rem; line-height: 1.6; color: var(--text-2); }
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-/* ── Utilities ──────────────────────────────────────────────────────── */
-.spinner-small {
-  width: 18px; height: 18px;
-  border: 2px solid rgba(255,255,255,0.3);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+/* ── Skeleton / Ghost Elements ─────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-panel) 25%, var(--bg-input) 50%, var(--bg-panel) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite linear;
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeleton-card { height: 120px; border-radius: var(--radius); }
+.skeleton-vital { height: 80px; border-radius: var(--radius-sm); }
+.skeleton-text { height: 14px; margin-bottom: 8px; width: 80%; }
+.skeleton-text.short { width: 40%; }
+
+/* ... Rest of CSS ... */

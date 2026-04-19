@@ -200,7 +200,7 @@
           </div>
           <button id="logoutBtn" class="btn-secondary" style="width:100%; justify-content:center; margin-bottom:15px; border-radius:12px;">Log Out</button>
           <div class="ai-badge" style="justify-content:center; opacity:0.6;">
-            Powered by Gemini 2.0
+            Secure AI Analysis
           </div>
         </div>
       </aside>
@@ -214,10 +214,19 @@
               <h1 class="section-title">Health Dashboard</h1>
               <p class="section-subtitle" id="patientSubtitle">Loading data…</p>
             </div>
-            <button id="runDemoBtn" class="btn-secondary" style="width:auto; padding: 8px 16px; font-size: 0.8rem; border-color: var(--accent); color: var(--accent);">
-              Run Demo Flow
-            </button>
           </div>
+
+          <!-- New: Health Summary Card -->
+          <div id="healthSummaryCard" class="stat-card" style="grid-column: 1 / -1; display:none; margin-bottom:24px; background: var(--accent-glow); border-color: var(--accent);">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">
+               <div style="background:var(--accent); color:white; padding:6px; border-radius:8px;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+               </div>
+               <h3 style="font-size:1rem; font-weight:800; color:var(--text-1);">Latest Health Insights</h3>
+            </div>
+            <p id="healthSummaryText" style="color:var(--text-1); font-size:0.95rem; font-weight:500;">Your biomarker trends are being analyzed...</p>
+          </div>
+
           <div class="stats-grid" id="statsGrid"></div>
           
           <div class="card-section">

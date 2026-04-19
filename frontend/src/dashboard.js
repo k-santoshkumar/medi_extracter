@@ -19,6 +19,7 @@ window.fetch = async function () {
 let trendChartInstance = null;
 let allTrends = [];
 let pendingReportData = null;
+let currentFileUrl = null;
 
 // ── DOM Helpers ────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
@@ -44,7 +45,6 @@ function setTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
   localStorage.setItem("theme", theme);
   
-  // Update toggle icons
   const sunIcon = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-11.314l.707.707m11.314 11.314l.707.707M12 8a4 4 0 100 8 4 4 0 000-8z"/></svg>`;
   const moonIcon = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
   
@@ -61,35 +61,42 @@ function toggleTheme() {
 $("themeToggleMobile")?.addEventListener("click", toggleTheme);
 $("themeToggleDesktop")?.addEventListener("click", toggleTheme);
 
+// ── Haptic Feedback Utility ───────────────────────────────────────
+async function triggerHaptic(type = "light") {
+  if (window.Capacitor?.Plugins?.Haptics) {
+    try {
+      const { Haptics, ImpactStyle } = window.Capacitor.Plugins;
+      if (type === "heavy") await Haptics.impact({ style: ImpactStyle.Heavy });
+      else if (type === "success") await Haptics.notification({ type: 'SUCCESS' });
+      else await Haptics.impact({ style: ImpactStyle.Light });
+    } catch (e) { /* Haptics not supported */ }
+  }
+}
+
 // ── Unified Navigation (Sidebar & Bottom Nav) ──────────────────────
 function navigate(sectionId) {
+  triggerHaptic("light");
   const sectionIdLower = sectionId.toLowerCase();
   
-  // Update sections
   document.querySelectorAll(".section").forEach(s => s.classList.remove("active"));
   const targetSection = $(`section${sectionId}`);
   if (targetSection) targetSection.classList.add("active");
 
-  // Update nav items (Sidebar)
   document.querySelectorAll(".nav-item").forEach(n => {
     n.classList.toggle("active", n.dataset.section === sectionIdLower);
   });
 
-  // Update nav items (Bottom Nav)
   document.querySelectorAll(".bottom-nav-item").forEach(n => {
     n.classList.toggle("active", n.dataset.section === sectionIdLower);
   });
 
-  // View-specific loaders
   if (sectionIdLower === "trends") setTimeout(loadTrendsGrid, 50);
   if (sectionIdLower === "reports") loadReports();
   if (sectionIdLower === "dashboard") loadDashboard();
 
-  // Scroll to top on section change
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-// Attach listeners to both Sidebar and Bottom Nav
 document.querySelectorAll(".nav-item, .bottom-nav-item").forEach(item => {
   item.addEventListener("click", (e) => {
     e.preventDefault();
@@ -102,57 +109,6 @@ document.querySelectorAll(".nav-item, .bottom-nav-item").forEach(item => {
     navigate(sectionCapitalized);
   });
 });
-
-// ── Demo Mode ──────────────────────────────────────────────────────
-async function runDemoFlow() {
-  navigate("Upload");
-  showToast("Starting Demo: Simulating Medical Extraction...", "info");
-  
-  // Create a dummy file for the UI
-  const dummyFile = { name: "demo_blood_report.pdf" };
-  
-  // Trigger the visual progress
-  $("progressFileName").textContent = dummyFile.name;
-  $("progressStatus").textContent   = "AI extracting data…";
-  const bar = $("progressBar");
-  if (bar) {
-    bar.style.width = "0%";
-    show($("uploadProgress"));
-    
-    // Animate teal bar
-    setTimeout(() => bar.style.width = "45%", 500);
-    setTimeout(() => bar.style.width = "85%", 1500);
-  }
-
-  // Simulated extraction delay
-  await new Promise(r => setTimeout(r, 2500));
-  
-  if (bar) bar.style.width = "100%";
-  $("progressStatus").textContent = "✓ Analysis Complete";
-
-  // Mock extracted data
-  const mockReport = {
-    patient_name: "John Doe (Demo)",
-    report_date: "10-24-2025",
-    lab_name: "Advanced Bio-Diagnostics",
-    doctor_name: "Dr. Sarah Smith",
-    biomarkers: [
-      { id: 101, marker_name: "Hemoglobin", original_name: "Hgb", value: "14.2", unit: "g/dL", reference_range: "13.5 - 17.5" },
-      { id: 102, marker_name: "HbA1c", original_name: "Glycohemoglobin", value: "5.4", unit: "%", reference_range: "< 5.7" },
-      { id: 103, marker_name: "Creatinine", original_name: "Serum Creat", value: "0.92", unit: "mg/dL", reference_range: "0.70 - 1.30" },
-      { id: 104, marker_name: "Glucose", original_name: "Fasting Blood Sugar", value: "92", unit: "mg/dL", reference_range: "70 - 99" }
-    ]
-  };
-
-  setTimeout(() => {
-    hide($("uploadProgress"));
-    showToast("✓ Demo Success: Data extracted using Bio-Teal logic", "success");
-    renderPreview(mockReport);
-    show($("previewCard"));
-  }, 800);
-}
-
-$("runDemoBtn")?.addEventListener("click", runDemoFlow);
 
 // ── Action Buttons ──────────────────────────────────────────────────
 $("logoutBtnMobile")?.addEventListener("click", () => window.supabaseClient.auth.signOut());
@@ -171,8 +127,10 @@ async function handleFileUpload(file) {
     return;
   }
 
-  // UI Progress Setup (Simple for now, can be expanded)
-  showToast("Uploading and extracting data...", "info");
+  if (currentFileUrl) URL.revokeObjectURL(currentFileUrl);
+  currentFileUrl = URL.createObjectURL(file);
+  
+  showToast("AI is analyzing your report...", "info");
   
   try {
     const formData = new FormData();
@@ -189,11 +147,12 @@ async function handleFileUpload(file) {
     }
 
     const result = await response.json();
+    triggerHaptic("success");
     showToast("✓ Extraction complete!", "success");
     
-    // Refresh and return to dashboard
-    loadDashboard();
-    navigate("Dashboard");
+    renderPreview(result.extracted, file.type);
+    show($("previewCard"));
+    $("previewCard").scrollIntoView({ behavior: 'smooth' });
 
   } catch (err) {
     showToast(`Error: ${err.message}`, "error");
@@ -201,15 +160,26 @@ async function handleFileUpload(file) {
 }
 
 // ── Preview Extracted Data ─────────────────────────────────────────
-function renderPreview(report) {
+function renderPreview(report, fileType) {
   pendingReportData = report;
 
-  // Meta section
+  const imgPreview = $("imagePreview");
+  const pdfPlaceholder = $("pdfPlaceholder");
+  
+  if (fileType.startsWith("image/")) {
+    imgPreview.src = currentFileUrl;
+    show(imgPreview);
+    hide(pdfPlaceholder);
+  } else {
+    hide(imgPreview);
+    show(pdfPlaceholder);
+  }
+
   $("previewMeta").innerHTML = [
     { label: "Patient",    value: report.patient_name  || "N/A" },
     { label: "Date",       value: report.report_date   || "N/A" },
     { label: "Lab",        value: report.lab_name      || "N/A" },
-    { label: "Doctor",     value: report.doctor_name   || "N/A" },
+    { label: "Doctor",     value: report.doctor_name   || "N/A" }
   ].map(m => `
     <div class="meta-item">
       <span class="meta-label" style="font-size:0.65rem; font-weight:700; color:var(--text-3); text-transform:uppercase;">${m.label}</span>
@@ -217,7 +187,6 @@ function renderPreview(report) {
     </div>
   `).join("");
 
-  // Biomarker table
   const tbody = $("previewBody");
   tbody.innerHTML = "";
 
@@ -227,15 +196,18 @@ function renderPreview(report) {
   }
 
   report.biomarkers.forEach(bm => {
+    const isLow = bm.confidence === "low";
     const tr = document.createElement("tr");
+    if (isLow) tr.className = "confidence-low";
+    
     tr.innerHTML = `
       <td style="padding:12px 16px;">
-        <div style="font-weight:700; color:var(--text-1);">${escHtml(bm.marker_name)}</div>
+        <div class="marker-name" style="font-weight:700; color:var(--text-1);">${escHtml(bm.marker_name)}</div>
         <div style="font-size:0.7rem; color:var(--text-3);">${escHtml(bm.original_name)}</div>
       </td>
       <td style="padding:12px 16px;">
-        <input class="inline-edit" data-id="${bm.id}" value="${escHtml(bm.value)}"
-               style="background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text-1); font-size:0.85rem; width:80px; padding:4px 8px; outline:none;" />
+        <input class="inline-edit" value="${escHtml(bm.value)}"
+               style="background:var(--bg-input); border:1px solid var(--border); border-radius:6px; color:var(--text-1); font-size:0.85rem; width:70px; padding:4px 8px; outline:none;" />
       </td>
       <td style="padding:12px 16px; color:var(--text-2); font-size:0.8rem;">${escHtml(bm.unit || "—")}</td>
       <td style="padding:12px 16px; color:var(--text-3); font-size:0.75rem;">${escHtml(bm.reference_range || "—")}</td>
@@ -244,7 +216,6 @@ function renderPreview(report) {
   });
 }
 
-// Confirm and Save
 $("confirmBtn")?.addEventListener("click", async () => {
     showToast("Report saved to your medical history", "success");
     hide($("previewCard"));
@@ -254,10 +225,18 @@ $("confirmBtn")?.addEventListener("click", async () => {
 
 // ── Dashboard Loading ──────────────────────────────────────────────
 async function loadDashboard() {
+  const statsGrid = $("statsGrid");
+  const vitalsGrid = $("vitalsGrid");
+  
+  if (statsGrid) statsGrid.innerHTML = Array(4).fill('<div class="skeleton" style="height:110px; border-radius:16px;"></div>').join('');
+  if (vitalsGrid) vitalsGrid.innerHTML = Array(6).fill('<div class="skeleton" style="height:80px; border-radius:16px;"></div>').join('');
+  
   try {
     const res = await fetch(`${API_BASE}/api/v1/dashboard/stats`);
     if (!res.ok) throw new Error("Failed to load stats");
     const stats = await res.json();
+    
+    await new Promise(r => setTimeout(r, 400));
     
     renderStats(stats);
     renderVitals(stats.latest_vitals || []);
@@ -300,24 +279,64 @@ function renderVitals(vitals) {
 
   if (vitals.length === 0) {
     grid.innerHTML = `<p style="grid-column:1/-1; color:var(--text-3); text-align:center; padding:20px;">No markers found yet.</p>`;
+    hide($("healthSummaryCard"));
     return;
   }
 
-  grid.innerHTML = vitals.slice(0, 8).map(v => `
-    <div class="vital-card">
-      <div class="vital-name">${escHtml(v.marker_name)}</div>
-      <div class="vital-value">${escHtml(v.value)} <span style="font-size:0.7rem; font-weight:400;">${escHtml(v.unit || "")}</span></div>
-    </div>
-  `).join("");
+  let outOfRangeCount = 0;
+  grid.innerHTML = vitals.slice(0, 10).map(v => {
+    let statusTag = "";
+    if (v.reference_range && v.reference_range !== "N/A") {
+        const val = parseFloat(v.value);
+        const range = v.reference_range.match(/(\d+\.?\d*)\s*-\s*(\d+\.?\d*)/);
+        if (range && !isNaN(val)) {
+            const min = parseFloat(range[1]);
+            const max = parseFloat(range[2]);
+            if (val < min || val > max) {
+                outOfRangeCount++;
+                statusTag = `<span style="background:var(--red); color:white; font-size:0.6rem; padding:2px 6px; border-radius:4px; margin-left:8px;">CAUTION</span>`;
+            }
+        }
+    }
+
+    return `
+      <div class="vital-card">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div class="vital-name">${escHtml(v.marker_name)}</div>
+            ${statusTag}
+        </div>
+        <div class="vital-value">${escHtml(v.value)} <span style="font-size:0.7rem; font-weight:400; color:var(--text-3);">${escHtml(v.unit || "")}</span></div>
+      </div>
+    `;
+  }).join("");
+
+  const summaryCard = $("healthSummaryCard");
+  const summaryText = $("healthSummaryText");
+  if (summaryCard && summaryText) {
+      show(summaryCard);
+      if (outOfRangeCount > 0) {
+          summaryText.textContent = `Your latest report shows ${outOfRangeCount} biomarker${outOfRangeCount > 1 ? 's' : ''} outside standard reference ranges. Please review with your physician.`;
+          summaryCard.style.background = "rgba(244, 63, 94, 0.1)";
+          summaryCard.style.borderColor = "var(--red)";
+      } else {
+          summaryText.textContent = "All your latest biomarkers are within standard reference ranges. Great job maintaining your health trends!";
+          summaryCard.style.background = "var(--accent-glow)";
+          summaryCard.style.borderColor = "var(--accent)";
+      }
+  }
 }
 
 // ── Reports Loading ────────────────────────────────────────────────
 async function loadReports() {
   const list = $("reportsList");
   if (!list) return;
+
+  list.innerHTML = Array(3).fill('<div class="skeleton" style="height:70px; margin-bottom:12px; border-radius:12px;"></div>').join('');
+
   try {
     const res = await fetch(`${API_BASE}/api/v1/reports`);
     const reports = await res.json();
+    await new Promise(r => setTimeout(r, 300));
 
     if (!reports.length) {
       list.innerHTML = `<p style="text-align:center; padding:40px; color:var(--text-3);">No reports uploaded yet.</p>`;

@@ -18,10 +18,11 @@ You are expert in extracting data from medical records. Your task is to extract 
 Instructions:
 1. Extract ALL biomarker names and their corresponding values.
 2. The output MUST be a Markdown table.
-3. The table columns MUST be: patient_name, report_date, lab_name, doctor_name, marker_name, value, unit, reference_range.
-4. If a field is not found, use "N/A".
-5. Standardize the date to mm-dd-yyyy format.
-6. Do NOT include units in the 'value' column; put them in the 'unit' column.
+3. The table columns MUST be: patient_name, report_date, lab_name, doctor_name, marker_name, value, unit, reference_range, confidence.
+4. The 'confidence' column must be either "high" or "low" based on how clearly the value is legible in the report.
+5. If a field is not found, use "N/A".
+6. Standardize the date to mm-dd-yyyy format.
+7. Do NOT include units in the 'value' column; put them in the 'unit' column.
 
 Medical Report:
 """
@@ -36,6 +37,9 @@ def df_to_result_dict(df):
             "doctor_name": "N/A",
             "biomarkers": []
         }
+    
+    # Clean up column names (Gemini sometimes adds extra spaces)
+    df.columns = [c.strip().lower() for c in df.columns]
     
     # Extract common fields from the first row
     first_row = df.iloc[0]
@@ -62,7 +66,8 @@ def df_to_result_dict(df):
                 "marker_name": marker_name,
                 "value": clean(row.get("value")),
                 "unit": clean(row.get("unit")),
-                "reference_range": clean(row.get("reference_range"))
+                "reference_range": clean(row.get("reference_range")),
+                "confidence": clean(row.get("confidence")).lower()
             })
     
     return result
@@ -74,15 +79,11 @@ def markdown_to_df(markdown_text):
         table_pattern = r"(\|.*\|(?:\n|\r)?)+"
         tables = re.findall(table_pattern, markdown_text)
         
-        # If the above greedy regex is too aggressive, we can split by double newlines or headers
-        # But let's try a simpler split approach first if re fails
         if not tables:
             # Fallback: find any line starting and ending with |
             rows = [line.strip() for line in markdown_text.split("\n") if line.strip().startswith("|") and line.strip().endswith("|")]
             if len(rows) < 3: return pd.DataFrame()
             
-            # Group into discrete tables if there are multiple
-            # (Simplification: assume one single table for now or concat all)
             data_rows = []
             headers = [h.strip() for h in rows[0].strip("|").split("|")]
             for r in rows[2:]:
@@ -130,12 +131,10 @@ def extract_data_from_document(file_path):
     file_ext = os.path.splitext(file_path)[1].lower()
     
     if file_ext == ".pdf":
-        # First try text extraction
         try:
             reader = PdfReader(file_path)
             text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
             
-            # If text is too short, it might be a scan. Fallback to Vision.
             if len(text.strip()) < 100:
                 return extract_data_from_images(file_path, is_pdf=True)
             
