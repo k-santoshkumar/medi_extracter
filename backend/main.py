@@ -143,31 +143,38 @@ def serve_index():
 
 @app.route("/api/v1/upload", methods=["POST"])
 def upload_medical_record():
+    logger.info(">>> Received upload request")
     if not supabase:
+        logger.error("Supabase client not initialized")
         return jsonify({"detail": "Backend not properly configured with Supabase"}), 500
         
     if "file" not in request.files:
+        logger.warning("No file part in request")
         return jsonify({"detail": "No file part"}), 400
     
     file = request.files["file"]
     if file.filename == "":
+        logger.warning("No selected file")
         return jsonify({"detail": "No selected file"}), 400
     
     # Save locally
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
+        logger.warning(f"Unsupported file extension: {ext}")
         return jsonify({"detail": "Unsupported file type"}), 400
         
     unique_filename = f"{uuid.uuid4()}{ext}"
     local_path = os.path.join(UPLOAD_DIR, unique_filename)
+    logger.info(f"Saving file to: {local_path}")
     file.save(local_path)
     
     try:
-        # Extract data using Gemini
+        logger.info(f"Starting extraction for: {unique_filename}")
+        # Extract data using AI
         extracted_data = extract_data_from_document(local_path)
+        logger.info(f"Extraction successful for {unique_filename}")
         
         # Save to Supabase
-        # 1. Create Report
         report_payload = {
             "filename": file.filename,
             "patient_name": extracted_data.get("patient_name"),
@@ -177,13 +184,19 @@ def upload_medical_record():
             "file_path": unique_filename
         }
         
+        logger.info(f"Inserting report into Supabase: {report_payload['filename']}")
         report_res = supabase.table("reports").insert(report_payload).execute()
+        
+        if not report_res.data:
+            raise Exception("Failed to insert report into Supabase")
+            
         report_id = report_res.data[0]["id"]
+        logger.info(f"Report created with ID: {report_id}")
         
         # 2. Normalize and Save Biomarkers
         biomarkers = extracted_data.get("biomarkers", [])
         if biomarkers:
-            # Extract marker names for normalization
+            logger.info(f"Processing {len(biomarkers)} biomarkers")
             marker_names = [b["marker_name"] for b in biomarkers]
             norm_map = normalize_biomarker_names(marker_names)
             
@@ -198,15 +211,17 @@ def upload_medical_record():
                     "reference_range": b.get("reference_range")
                 })
             
+            logger.info(f"Inserting biomarkers for report {report_id}")
             supabase.table("biomarkers").insert(biomarker_payloads).execute()
         
+        logger.info(f"<<< Upload and processing complete for {unique_filename}")
         return jsonify({
             "report_id": report_id,
             "extracted": extracted_data
         })
         
     except Exception as e:
-        logger.exception("Upload processing failed")
+        logger.exception(f"CRITICAL: Upload processing failed for {unique_filename}")
         return jsonify({"detail": str(e)}), 500
 
 
@@ -303,6 +318,33 @@ def get_marker_trends(marker_name):
         return jsonify(trends)
     except Exception as e:
         return jsonify({"detail": str(e)}), 500
+
+@app.route("/api/v1/biomarkers/<int:marker_id>", methods=["PUT"])
+def update_biomarker(marker_id):
+    if not supabase: return jsonify({"detail": "Not configured"}), 500
+    try:
+        new_value = request.args.get("value")
+        logger.info(f"Updating biomarker {marker_id} to value: {new_value}")
+        res = supabase.table("biomarkers").update({"value": new_value}).eq("id", marker_id).execute()
+        return jsonify(res.data)
+    except Exception as e:
+        logger.exception(f"Failed to update biomarker {marker_id}")
+        return jsonify({"detail": str(e)}), 500
+
+
+@app.route("/api/v1/reports/<int:report_id>", methods=["DELETE"])
+def delete_report(report_id):
+    if not supabase: return jsonify({"detail": "Not configured"}), 500
+    try:
+        logger.info(f"Deleting report {report_id}")
+        # Cascade delete is handled by Supabase if configured, but let's be explicit if needed
+        # Or just delete the report and let Supabase DB handle the rest.
+        res = supabase.table("reports").delete().eq("id", report_id).execute()
+        return jsonify({"status": "deleted", "data": res.data})
+    except Exception as e:
+        logger.exception(f"Failed to delete report {report_id}")
+        return jsonify({"detail": str(e)}), 500
+
 
 @app.route("/uploads/<path:filename>")
 def serve_uploads_api(filename):

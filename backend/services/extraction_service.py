@@ -127,43 +127,68 @@ def extract_data_from_document(file_path):
     Multimodal extraction pipeline.
     Handles PDF (text-based or scanned) and Image formats.
     """
+    logger.info(f"extract_data_from_document: Processing {file_path}")
     llm = get_llm()
     file_ext = os.path.splitext(file_path)[1].lower()
     
     if file_ext == ".pdf":
         try:
+            logger.info("PDF detected. Attempting text extraction via PyPDF2...")
             reader = PdfReader(file_path)
-            text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+            text = ""
+            for i, page in enumerate(reader.pages):
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+            
+            logger.info(f"Extracted {len(text)} characters of text from PDF.")
             
             if len(text.strip()) < 100:
+                logger.info("Text content too short or empty. Falling back to Vision (OCR)...")
                 return extract_data_from_images(file_path, is_pdf=True)
             
+            logger.info("Sending text to LLM for extraction...")
             response = llm.invoke(EXTRACTION_PROMPT + text).content
+            logger.info("LLM responded successfully to text prompt.")
+            
             df = markdown_to_df(response)
+            if df.empty:
+                logger.warning("Markdown parsing returned empty DataFrame. Falling back to Vision...")
+                return extract_data_from_images(file_path, is_pdf=True)
+                
             return df_to_result_dict(df)
         except Exception as e:
-            logger.warning(f"Text-based PDF extraction failed: {e}. Falling back to Vision.")
+            logger.error(f"Text-based PDF extraction failed: {e}. Falling back to Vision.")
             return extract_data_from_images(file_path, is_pdf=True)
         
     elif file_ext in [".jpg", ".jpeg", ".png"]:
+        logger.info(f"Image detected ({file_ext}). Using Vision pipeline.")
         df = extract_data_from_images(file_path, is_pdf=False)
         return df_to_result_dict(df)
         
     else:
+        logger.error(f"Unsupported file format: {file_ext}")
         raise ValueError(f"Unsupported file format: {file_ext}")
 
 def pdf_to_images(pdf_path):
     """Converts PDF pages to base64 encoded PNG images."""
-    pages = convert_from_path(pdf_path)
-    images_base64 = []
-    for page in pages:
-        buf = io.BytesIO()
-        page.save(buf, format="PNG")
-        images_base64.append(base64.b64encode(buf.getvalue()).decode('utf-8'))
-    return images_base64
+    logger.info(f"pdf_to_images: Converting {pdf_path}")
+    try:
+        pages = convert_from_path(pdf_path)
+        logger.info(f"Converted PDF to {len(pages)} images.")
+        images_base64 = []
+        for page in pages:
+            buf = io.BytesIO()
+            page.save(buf, format="PNG")
+            images_base64.append(base64.b64encode(buf.getvalue()).decode('utf-8'))
+        return images_base64
+    except Exception as e:
+        logger.error(f"pdf_to_images FAILED: {e}")
+        raise
 
 def extract_data_from_images(file_path, is_pdf=False):
-    """Uses Gemini 2.0 Flash Vision to extract data from images/scans."""
+    """Uses Gemini Vision to extract data from images/scans."""
+    logger.info(f"extract_data_from_images: is_pdf={is_pdf}, path={file_path}")
     llm = get_llm()
     
     images_base64 = []
@@ -180,6 +205,10 @@ def extract_data_from_images(file_path, is_pdf=False):
             "image_url": {"url": f"data:image/png;base64,{b64}"}
         })
 
+    logger.info(f"Sending {len(images_base64)} images to LLM Vision...")
     messages = [{"role": "user", "content": content}]
     response = llm.invoke(messages).content
-    return markdown_to_df(response)
+    logger.info("LLM Vision responded successfully.")
+    
+    df = markdown_to_df(response)
+    return df

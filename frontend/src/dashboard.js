@@ -120,9 +120,11 @@ $("cameraInput")?.addEventListener("change", (e) => handleFileUpload(e.target.fi
 // ── File Upload & Extraction ───────────────────────────────────────
 async function handleFileUpload(file) {
   if (!file) return;
+  console.log(">>> Starting handleFileUpload for:", file.name, "size:", file.size, "type:", file.type);
 
   const allowed = ["application/pdf", "image/jpeg", "image/jpg", "image/png"];
   if (!allowed.includes(file.type)) {
+    console.warn("Unsupported file type:", file.type);
     showToast("Unsupported file type. Use PDF, JPG, or PNG.", "error");
     return;
   }
@@ -136,17 +138,21 @@ async function handleFileUpload(file) {
     const formData = new FormData();
     formData.append("file", file);
 
+    console.log("Sending POST request to /api/v1/upload...");
     const response = await fetch(`${API_BASE}/api/v1/upload`, {
       method: "POST",
       body: formData,
     });
 
+    console.log("Upload Response Status:", response.status);
     if (!response.ok) {
       const err = await response.json();
+      console.error("Upload Error Details:", err);
       throw new Error(err.detail || "Upload failed");
     }
 
     const result = await response.json();
+    console.log("Upload Successful. Result:", result);
     triggerHaptic("success");
     showToast("✓ Extraction complete!", "success");
     
@@ -155,6 +161,7 @@ async function handleFileUpload(file) {
     $("previewCard").scrollIntoView({ behavior: 'smooth' });
 
   } catch (err) {
+    console.error("CRITICAL: File Upload Failed:", err);
     showToast(`Error: ${err.message}`, "error");
   }
 }
