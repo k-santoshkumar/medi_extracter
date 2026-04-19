@@ -1,5 +1,7 @@
 // ── Config ─────────────────────────────────────────────────────────
-const API_BASE = "https://medi-extracter.onrender.com";
+const API_BASE = window.location.origin.includes("localhost") || window.location.origin.includes("127.0.0.1")
+  ? "http://localhost:8000" 
+  : "https://medi-extracter.onrender.com";
 
 // Inject Supabase Auth Token into all fetch calls automatically
 const originalFetch = window.fetch;
@@ -146,9 +148,16 @@ async function handleFileUpload(file) {
 
     console.log("Upload Response Status:", response.status);
     if (!response.ok) {
-      const err = await response.json();
-      console.error("Upload Error Details:", err);
-      throw new Error(err.detail || "Upload failed");
+      let detail = "Upload failed";
+      try {
+        const err = await response.json();
+        detail = err.detail || detail;
+        console.error("Upload Error Details (JSON):", err);
+      } catch (e) {
+        console.error("Upload Error (Raw):", response.status);
+        detail = `Server Error (${response.status}). The server might be processing a large file or is temporarily unavailable.`;
+      }
+      throw new Error(detail);
     }
 
     const result = await response.json();

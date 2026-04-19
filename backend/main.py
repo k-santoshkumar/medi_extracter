@@ -9,6 +9,7 @@ from flask_cors import CORS
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from pydantic import BaseModel
+import re
 
 # Service imports
 try:
