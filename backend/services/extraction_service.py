@@ -8,6 +8,9 @@ from pdf2image import convert_from_path
 from PyPDF2 import PdfReader
 from langchain_google_genai import ChatGoogleGenerativeAI
 from .normalization_service import get_llm
+import logging
+
+logger = logging.getLogger(__name__)
 
 EXTRACTION_PROMPT = """
 You are expert in extracting data from medical records. Your task is to extract the biomarker values from the provided medical report.
@@ -23,23 +26,84 @@ Instructions:
 Medical Report:
 """
 
+def df_to_result_dict(df):
+    """Converts the extracted DataFrame into the dictionary format expected by the backend."""
+    if df.empty:
+        return {
+            "patient_name": "N/A",
+            "report_date": "N/A",
+            "lab_name": "N/A",
+            "doctor_name": "N/A",
+            "biomarkers": []
+        }
+    
+    # Extract common fields from the first row
+    first_row = df.iloc[0]
+    
+    # Helper to clean N/A strings
+    def clean(val):
+        if pd.isna(val) or str(val).lower() in ["n/a", "none", "nan", ""]:
+            return "N/A"
+        return str(val).strip()
+
+    result = {
+        "patient_name": clean(first_row.get("patient_name")),
+        "report_date": clean(first_row.get("report_date")),
+        "lab_name": clean(first_row.get("lab_name")),
+        "doctor_name": clean(first_row.get("doctor_name")),
+        "biomarkers": []
+    }
+    
+    # Extract markers
+    for _, row in df.iterrows():
+        marker_name = clean(row.get("marker_name"))
+        if marker_name != "N/A":
+            result["biomarkers"].append({
+                "marker_name": marker_name,
+                "value": clean(row.get("value")),
+                "unit": clean(row.get("unit")),
+                "reference_range": clean(row.get("reference_range"))
+            })
+    
+    return result
+
 def markdown_to_df(markdown_text):
     """Parses markdown table(s) into a single pandas DataFrame."""
     try:
-        table_pattern = r"((?:\|.+\|(?:\n|\r))+\|.*\|)"
+        # Improved regex to handle potential leading/trailing spaces and varying line breaks
+        table_pattern = r"(\|.*\|(?:\n|\r)?)+"
         tables = re.findall(table_pattern, markdown_text)
+        
+        # If the above greedy regex is too aggressive, we can split by double newlines or headers
+        # But let's try a simpler split approach first if re fails
         if not tables:
-            return pd.DataFrame()
+            # Fallback: find any line starting and ending with |
+            rows = [line.strip() for line in markdown_text.split("\n") if line.strip().startswith("|") and line.strip().endswith("|")]
+            if len(rows) < 3: return pd.DataFrame()
             
+            # Group into discrete tables if there are multiple
+            # (Simplification: assume one single table for now or concat all)
+            data_rows = []
+            headers = [h.strip() for h in rows[0].strip("|").split("|")]
+            for r in rows[2:]:
+                vals = [v.strip() for v in r.strip("|").split("|")]
+                if len(vals) == len(headers):
+                    data_rows.append(vals)
+            return pd.DataFrame(data_rows, columns=headers)
+
         combined_df = pd.DataFrame()
-        for table in tables:
-            rows = [r.strip() for r in table.strip().split("\n")]
+        # Find all blocks that look like tables
+        table_blocks = re.finditer(r"((?:\|.+\|(?:\n|\r?))+)", markdown_text)
+        
+        for match in table_blocks:
+            table_text = match.group(0).strip()
+            rows = [r.strip() for r in table_text.split("\n") if r.strip()]
             if len(rows) < 3: continue
             
             headers = [h.strip() for h in rows[0].strip("|").split("|")]
             
             data = []
-            for row in rows[2:]:
+            for row in rows[2:]: # Skip header and separator row
                 values = [v.strip() for v in row.strip("|").split("|")]
                 if len(values) == len(headers):
                     data.append(values)
@@ -67,18 +131,24 @@ def extract_data_from_document(file_path):
     
     if file_ext == ".pdf":
         # First try text extraction
-        reader = PdfReader(file_path)
-        text = "\n".join(page.extract_text() for page in reader.pages)
-        
-        # If text is too short, it might be a scan. Fallback to Vision.
-        if len(text.strip()) < 100:
+        try:
+            reader = PdfReader(file_path)
+            text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+            
+            # If text is too short, it might be a scan. Fallback to Vision.
+            if len(text.strip()) < 100:
+                return extract_data_from_images(file_path, is_pdf=True)
+            
+            response = llm.invoke(EXTRACTION_PROMPT + text).content
+            df = markdown_to_df(response)
+            return df_to_result_dict(df)
+        except Exception as e:
+            logger.warning(f"Text-based PDF extraction failed: {e}. Falling back to Vision.")
             return extract_data_from_images(file_path, is_pdf=True)
         
-        response = llm.invoke(EXTRACTION_PROMPT + text).content
-        return markdown_to_df(response)
-        
     elif file_ext in [".jpg", ".jpeg", ".png"]:
-        return extract_data_from_images(file_path, is_pdf=False)
+        df = extract_data_from_images(file_path, is_pdf=False)
+        return df_to_result_dict(df)
         
     else:
         raise ValueError(f"Unsupported file format: {file_ext}")

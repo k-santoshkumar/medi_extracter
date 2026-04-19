@@ -17,18 +17,26 @@ def test_extraction():
 
     print(f"Testing extraction with: {pdf_path}")
     try:
-        df = extract_data_from_document(pdf_path)
+        result = extract_data_from_document(pdf_path)
         print("Extraction Successful!")
-        print("\nExtracted Data (first 5 rows):")
-        print(df.head())
+        print("\nExtracted Metadata:")
+        print(f"Patient: {result.get('patient_name')}")
+        print(f"Date: {result.get('report_date')}")
+        print(f"Lab: {result.get('lab_name')}")
+        print(f"Doctor: {result.get('doctor_name')}")
         
-        # Check for expected columns
-        expected = ["patient_name", "report_date", "marker_name", "value"]
-        missing = [col for col in expected if col not in df.columns]
+        biomarkers = result.get("biomarkers", [])
+        print(f"\nExtracted Biomarkers ({len(biomarkers)}):")
+        for b in biomarkers[:5]:
+            print(f"- {b['marker_name']}: {b['value']} {b['unit']}")
+        
+        # Check for expected keys
+        expected = ["patient_name", "report_date", "biomarkers"]
+        missing = [key for key in expected if key not in result]
         if missing:
-            print(f"Warning: Missing expected columns: {missing}")
+            print(f"Warning: Missing expected keys: {missing}")
         else:
-            print("All expected columns present.")
+            print("\nAll expected keys present.")
             
     except Exception as e:
         print(f"Extraction failed: {e}")
