@@ -23,6 +23,11 @@ let allTrends = [];
 let pendingReportData = null;
 let currentFileUrl = null;
 
+// Sequential Upload State
+let uploadQueue = [];
+let isProcessing = false;
+let completedCount = 0;
+
 // ── DOM Helpers ────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
 const show = (el) => { if (el) el.style.display = ""; };
