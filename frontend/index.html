@@ -15,34 +15,108 @@
 <body>
 
   <!-- ── Authentication Container ───────────────────────────────────── -->
-  <div id="authContainer" style="display:flex; justify-content:center; align-items:center; height:100vh; background: var(--bg-body); padding: 20px;">
-    <div style="background:var(--bg-panel); padding:40px; border-radius:12px; width:100%; max-width:400px; box-shadow:0 10px 30px rgba(0,0,0,0.5);">
-      <div style="display:flex; justify-content:center; align-items:center; gap:10px; margin-bottom:20px;">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5">
-          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-        </svg>
-        <span style="font-size:1.5rem; font-weight:700; color:var(--text-1);">MedExtract</span>
+  <div id="authContainer" style="display:flex; justify-content:center; align-items:center; min-height:100vh; background: var(--bg-body); padding: 20px;">
+    <div class="auth-card" style="background:var(--bg-panel); padding:40px; border-radius:16px; width:100%; max-width:440px; box-shadow:0 20px 50px rgba(0,0,0,0.4); border: 1px solid var(--border);">
+      
+      <!-- Brand Header -->
+      <div style="display:flex; flex-direction:column; align-items:center; margin-bottom:30px;">
+        <div style="background: rgba(16, 185, 129, 0.1); padding: 12px; border-radius: 12px; margin-bottom: 15px;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          </svg>
+        </div>
+        <h1 style="font-size:1.75rem; font-weight:800; color:var(--text-1); margin:0;">MedExtract</h1>
+        <p style="color:var(--text-3); font-size:0.9rem; margin-top:5px;">Secure Medical Record Analysis</p>
       </div>
-      <p style="text-align:center; color:var(--text-2); margin-bottom: 25px;">Please sign in to continue</p>
-      
-      <div id="authError" style="color:var(--red); font-size:0.9rem; margin-bottom:15px; text-align:center; display:none;"></div>
-      
-      <input type="email" id="authEmail" placeholder="Email Address" style="width:100%; padding:12px; margin-bottom:15px; border-radius:8px; border:1px solid var(--border); background:var(--bg-body); color:var(--text-1);" />
-      <input type="password" id="authPassword" placeholder="Password" style="width:100%; padding:12px; margin-bottom:20px; border-radius:8px; border:1px solid var(--border); background:var(--bg-body); color:var(--text-1);" />
-      
-      <button id="loginBtn" class="btn-primary" style="width:100%; justify-content:center; margin-bottom:10px;">Log In</button>
-      <button id="registerBtn" class="btn-secondary" style="width:100%; justify-content:center; margin-bottom:20px;">Create Account</button>
-      
-      <div style="display:flex; align-items:center; color:var(--text-3); font-size:0.8rem; margin-bottom:20px;">
+
+      <div id="authError" class="auth-error-box" style="display:none;"></div>
+
+      <!-- VIEW: LOGIN -->
+      <div id="viewLogin">
+        <h2 style="font-size:1.25rem; margin-bottom:20px; color:var(--text-1);">Welcome Back</h2>
+        <div class="input-group">
+          <label for="authEmail">Email Address</label>
+          <input type="email" id="authEmail" placeholder="name@company.com" />
+        </div>
+        <div class="input-group">
+          <label for="authPassword">Password</label>
+          <input type="password" id="authPassword" placeholder="••••••••" />
+        </div>
+        
+        <button id="loginBtn" class="btn-primary" style="width:100%; justify-content:center; margin-top:10px;">
+          <span>Sign In</span>
+        </button>
+        
+        <p style="text-align:center; margin-top:20px; font-size:0.9rem; color:var(--text-2);">
+          Don't have an account? <a href="#" id="toRegister" style="color:var(--accent); font-weight:600; text-decoration:none;">Create one</a>
+        </p>
+      </div>
+
+      <!-- VIEW: REGISTER -->
+      <div id="viewRegister" style="display:none;">
+        <h2 style="font-size:1.25rem; margin-bottom:20px; color:var(--text-1);">Create Account</h2>
+        <div class="input-group">
+          <label for="regFullName">Full Name</label>
+          <input type="text" id="regFullName" placeholder="John Doe" />
+        </div>
+        <div class="input-group">
+          <label for="regEmail">Email Address</label>
+          <input type="email" id="regEmail" placeholder="name@company.com" />
+        </div>
+        <div class="input-group">
+          <label for="regPassword">Password</label>
+          <input type="password" id="regPassword" placeholder="Minimum 8 characters" />
+          <div id="pwStrength" class="pw-strength-meter"></div>
+        </div>
+        <div class="input-group">
+          <label for="regConfirmPassword">Confirm Password</label>
+          <input type="password" id="regConfirmPassword" placeholder="Re-enter password" />
+        </div>
+
+        <div style="display:flex; align-items:flex-start; gap:10px; margin-bottom:20px;">
+          <input type="checkbox" id="regTerms" style="margin-top:4px;" />
+          <label for="regTerms" style="font-size:0.8rem; color:var(--text-2); cursor:pointer;">
+            I agree to the <a href="#" style="color:var(--accent);">Terms of Service</a> and <a href="#" style="color:var(--accent);">Privacy Policy</a>.
+          </label>
+        </div>
+
+        <button id="registerBtn" class="btn-primary" style="width:100%; justify-content:center;">
+          <span>Create Enterprise Account</span>
+        </button>
+        
+        <p style="text-align:center; margin-top:20px; font-size:0.9rem; color:var(--text-2);">
+          Already have an account? <a href="#" id="toLogin" style="color:var(--accent); font-weight:600; text-decoration:none;">Sign In</a>
+        </p>
+      </div>
+
+      <!-- VIEW: VERIFY EMAIL -->
+      <div id="viewVerify" style="display:none; text-align:center;">
+        <div style="background: rgba(59, 130, 246, 0.1); width:64px; height:64px; border-radius:50%; display:flex; align-items:center; justify-content:center; margin: 0 auto 20px;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+            <polyline points="22,6 12,13 2,6"/>
+          </svg>
+        </div>
+        <h2 style="font-size:1.25rem; margin-bottom:10px; color:var(--text-1);">Verify your email</h2>
+        <p style="color:var(--text-2); font-size:0.95rem; line-height:1.5; margin-bottom:25px;">
+          We've sent a verification link to <strong id="verifyEmailDisplay">your email</strong>. Please click the link to activate your account.
+        </p>
+        <button id="resendEmailBtn" class="btn-secondary" style="width:100%; justify-content:center; margin-bottom:15px;">Resend Email</button>
+        <button id="backToLoginBtn" class="btn-ghost" style="width:100%; justify-content:center; color:var(--text-3);">Back to Sign In</button>
+      </div>
+
+      <!-- Social Auth Divider -->
+      <div id="socialDivider" style="display:flex; align-items:center; color:var(--text-3); font-size:0.8rem; margin: 25px 0;">
         <div style="flex:1; height:1px; background:var(--border);"></div>
-        <span style="padding:0 10px;">OR</span>
+        <span style="padding:0 15px; font-weight:500;">OR CONTINUE WITH</span>
         <div style="flex:1; height:1px; background:var(--border);"></div>
       </div>
       
-      <button id="googleAuthBtn" class="btn-secondary" style="width:100%; justify-content:center; gap:10px;">
+      <button id="googleAuthBtn" class="btn-secondary" style="width:100%; justify-content:center; gap:12px; background:transparent; border:1px solid var(--border);">
         <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="18" />
-        Continue with Google
+        <span style="font-weight:600;">Google</span>
       </button>
+
     </div>
   </div>
 
