@@ -177,14 +177,14 @@ def pdf_to_images(pdf_path):
     """Converts PDF pages to base64 encoded PNG images with memory optimization."""
     logger.info(f"pdf_to_images: Converting {pdf_path}")
     try:
-        # Use 150 DPI instead of default 200/300 to stay within Render memory limits
-        pages = convert_from_path(pdf_path, dpi=150)
+        # Use 100 DPI instead of 150/200 to stay safely within memory limits (e.g., Render free tier)
+        pages = convert_from_path(pdf_path, dpi=100)
         logger.info(f"Converted PDF to {len(pages)} images.")
         images_base64 = []
         for page in pages:
             buf = io.BytesIO()
-            # Optimize image quality to reduce base64 string size
-            page.save(buf, format="JPEG", quality=80) 
+            # Optimize image quality (70) to further reduce memory and payload size
+            page.save(buf, format="JPEG", quality=70) 
             images_base64.append(base64.b64encode(buf.getvalue()).decode('utf-8'))
         return images_base64
     except Exception as e:

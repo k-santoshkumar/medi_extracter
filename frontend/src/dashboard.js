@@ -22,11 +22,49 @@ let trendChartInstance = null;
 let allTrends = [];
 let pendingReportData = null;
 let currentFileUrl = null;
+let stagedFile = null;
 
 // ── DOM Helpers ────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
 const show = (el) => { if (el) el.style.display = ""; };
 const hide = (el) => { if (el) el.style.display = "none"; };
+
+// ── Utility: Image Compression ────────────────────────────────────
+async function compressImage(file, maxWidth = 1280) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth) {
+          height *= maxWidth / width;
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob((blob) => {
+          const compressedFile = new File([blob], file.name, {
+            type: 'image/jpeg',
+            lastModified: Date.now()
+          });
+          resolve(compressedFile);
+        }, 'image/jpeg', 0.85);
+      };
+    };
+  });
+}
 
 // ── Toast ──────────────────────────────────────────────────────────
 function showToast(msg, type = "info") {
@@ -116,62 +154,107 @@ document.querySelectorAll(".nav-item, .bottom-nav-item").forEach(item => {
 $("logoutBtnMobile")?.addEventListener("click", () => window.supabaseClient.auth.signOut());
 $("browseBtn")?.addEventListener("click",  () => $("fileInput").click());
 $("cameraBtn")?.addEventListener("click",  () => $("cameraInput").click());
-$("fileInput")?.addEventListener("change", (e) => handleFileUpload(e.target.files[0]));
-$("cameraInput")?.addEventListener("change", (e) => handleFileUpload(e.target.files[0]));
 
-// ── File Upload & Extraction ───────────────────────────────────────
-async function handleFileUpload(file) {
+$("fileInput")?.addEventListener("change", (e) => stageFile(e.target.files[0]));
+$("cameraInput")?.addEventListener("change", (e) => stageFile(e.target.files[0]));
+
+$("submitUploadBtn")?.addEventListener("click", () => submitFile());
+$("cancelUploadBtn")?.addEventListener("click", () => {
+    stagedFile = null;
+    hide($("pendingUpload"));
+    show($("uploadArea"));
+});
+
+// ── File Upload Flow ───────────────────────────────────────────────
+function stageFile(file) {
   if (!file) return;
-  console.log(">>> Starting handleFileUpload for:", file.name, "size:", file.size, "type:", file.type);
-
+  
   const allowed = ["application/pdf", "image/jpeg", "image/jpg", "image/png"];
   if (!allowed.includes(file.type)) {
-    console.warn("Unsupported file type:", file.type);
     showToast("Unsupported file type. Use PDF, JPG, or PNG.", "error");
     return;
   }
 
-  if (currentFileUrl) URL.revokeObjectURL(currentFileUrl);
-  currentFileUrl = URL.createObjectURL(file);
+  stagedFile = file;
   
-  showToast("AI is analyzing your report...", "info");
+  // Update Staged UI
+  if ($("stagedFileName")) $("stagedFileName").textContent = file.name;
+  if ($("stagedFileSize")) $("stagedFileSize").textContent = `${(file.size / (1024 * 1024)).toFixed(2)} MB • Ready for analysis`;
   
-  try {
-    const formData = new FormData();
-    formData.append("file", file);
+  // Icon update
+  const isImage = file.type.startsWith("image/");
+  if ($("fileTypeIcon")) {
+      $("fileTypeIcon").innerHTML = isImage 
+        ? `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`
+        : `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
+  }
 
-    console.log("Sending POST request to /api/v1/upload...");
+  hide($("uploadArea"));
+  show($("pendingUpload"));
+  hide($("previewCard"));
+  
+  triggerHaptic("light");
+}
+
+async function submitFile() {
+  if (!stagedFile) return;
+
+  const file = stagedFile;
+  console.log(">>> Submitting file for analysis:", file.name);
+
+  show($("loadingOverlay"));
+  triggerHaptic("heavy");
+
+  try {
+    let fileToUpload = file;
+    
+    // Client-side reduction for images
+    if (file.type.startsWith("image/") && file.size > 1024 * 1024) {
+      console.log("Optimizing large image client-side...");
+      fileToUpload = await compressImage(file);
+      console.log("Reduced size from", file.size, "to", fileToUpload.size);
+    }
+
+    if (currentFileUrl) URL.revokeObjectURL(currentFileUrl);
+    currentFileUrl = URL.createObjectURL(fileToUpload);
+
+    const formData = new FormData();
+    formData.append("file", fileToUpload);
+
     const response = await fetch(`${API_BASE}/api/v1/upload`, {
       method: "POST",
       body: formData,
     });
 
-    console.log("Upload Response Status:", response.status);
     if (!response.ok) {
       let detail = "Upload failed";
       try {
         const err = await response.json();
         detail = err.detail || detail;
-        console.error("Upload Error Details (JSON):", err);
       } catch (e) {
-        console.error("Upload Error (Raw):", response.status);
-        detail = `Server Error (${response.status}). The server might be processing a large file or is temporarily unavailable.`;
+        detail = `Server Error (${response.status}). The report might be too large or complex.`;
       }
       throw new Error(detail);
     }
 
     const result = await response.json();
-    console.log("Upload Successful. Result:", result);
     triggerHaptic("success");
     showToast("✓ Extraction complete!", "success");
     
-    renderPreview(result.extracted, file.type);
+    renderPreview(result.extracted, fileToUpload.type);
     show($("previewCard"));
     $("previewCard").scrollIntoView({ behavior: 'smooth' });
 
+    // Success - reset staged state
+    stagedFile = null;
+    hide($("pendingUpload"));
+    show($("uploadArea"));
+
   } catch (err) {
-    console.error("CRITICAL: File Upload Failed:", err);
+    console.error("Analysis Failed:", err);
     showToast(`Error: ${err.message}`, "error");
+  } finally {
+    hide($("loadingOverlay"));
   }
 }
 
