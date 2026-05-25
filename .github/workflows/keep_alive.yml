@@ -2,8 +2,8 @@ name: Keep Alive Ping
 
 on:
   schedule:
-    # Runs every 5 minutes
-    - cron: "*/5 * * * *"
+    # Runs every 43800 minutes
+    - cron: "*/43800 * * * *"
   workflow_dispatch:
     # Allows manual triggering from the GitHub Actions tab
 
