@@ -1,16 +1,1 @@
-name: Keep Alive Ping
 
-on:
-  schedule:
-    # Runs every 43800 minutes
-    - cron: "*/43800 * * * *"
-  workflow_dispatch:
-    # Allows manual triggering from the GitHub Actions tab
-
-jobs:
-  ping:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Ping Health Endpoint
-        run: |
-          curl -I https://medi-extracter.onrender.com/health
