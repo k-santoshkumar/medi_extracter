@@ -1,17 +1,19 @@
 // ── Config ─────────────────────────────────────────────────────────
-const API_BASE = window.location.origin.includes("localhost") || window.location.origin.includes("127.0.0.1")
-  ? "http://localhost:8000" 
-  : "https://medi-extracter.onrender.com";
+const API_BASE = import.meta.env.VITE_API_BASE || (
+  window.location.origin.includes("localhost") || window.location.origin.includes("127.0.0.1")
+    ? "http://localhost:8000"
+    : window.location.origin
+);
 
-// Inject Supabase Auth Token into all fetch calls automatically
+// Inject the Azure access token into all API calls automatically.
 const originalFetch = window.fetch;
 window.fetch = async function () {
   let [resource, config] = arguments;
   if (typeof resource === 'string' && resource.startsWith(API_BASE)) {
     config = config || {};
     config.headers = config.headers || {};
-    if (window.supabaseSession) {
-      config.headers["Authorization"] = `Bearer ${window.supabaseSession.access_token}`;
+    if (window.authSession?.access_token) {
+      config.headers["Authorization"] = `Bearer ${window.authSession.access_token}`;
     }
   }
   return originalFetch(resource, config);
@@ -139,6 +141,7 @@ function navigate(sectionId) {
   if (sectionIdLower === "dashboard") loadDashboard();
 
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  history.replaceState(null, "", `#${sectionIdLower}`);
 }
 
 document.querySelectorAll(".nav-item, .bottom-nav-item").forEach(item => {
@@ -154,8 +157,14 @@ document.querySelectorAll(".nav-item, .bottom-nav-item").forEach(item => {
   });
 });
 
+window.addEventListener("hashchange", () => {
+  const section = window.location.hash.slice(1).toLowerCase();
+  if (["dashboard", "reports", "trends", "upload"].includes(section)) {
+    navigate(section.charAt(0).toUpperCase() + section.slice(1));
+  }
+});
+
 // ── Action Buttons ──────────────────────────────────────────────────
-$("logoutBtnMobile")?.addEventListener("click", () => window.supabaseClient.auth.signOut());
 $("browseBtn")?.addEventListener("click",  () => $("fileInput").click());
 $("cameraBtn")?.addEventListener("click",  () => $("cameraInput").click());
 
@@ -244,8 +253,10 @@ async function processQueue() {
       throw new Error(detail);
     }
 
-    const result = await response.json();
-    
+    const queued = await response.json();
+    const result = await waitForProcessingJob(queued.job_id, item.id);
+    currentFileUrl = result.file_url || null;
+
     if (result.extraction_error) {
         item.status = 'partial';
         updateItemStatusUI(item.id, 'Saved (Manual)', false, true);
@@ -276,19 +287,37 @@ async function processQueue() {
   processQueue(); // Loop to next
 }
 
+async function waitForProcessingJob(jobId, itemId) {
+  for (let attempt = 0; attempt < 120; attempt++) {
+    const response = await fetch(`${API_BASE}/api/v1/jobs/${encodeURIComponent(jobId)}`);
+    if (!response.ok) throw new Error("Unable to read processing status");
+    const job = await response.json();
+    if (job.status === "complete") return job;
+    if (job.status === "failed") throw new Error(job.error || "Document processing failed");
+    updateItemStatusUI(itemId, job.status === "processing" ? "Analyzing..." : "Queued...", true);
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+  throw new Error("Document processing timed out");
+}
+
 // ── Preview Extracted Data ─────────────────────────────────────────
 function renderPreview(report, fileType) {
   pendingReportData = report;
 
   const imgPreview = $("imagePreview");
   const pdfPlaceholder = $("pdfPlaceholder");
+  const pdfPreviewFrame = $("pdfPreviewFrame");
   
   if (fileType.startsWith("image/")) {
-    imgPreview.src = currentFileUrl;
+    imgPreview.src = currentFileUrl || "";
+    imgPreview.style.display = currentFileUrl ? "block" : "none";
     show(imgPreview);
     hide(pdfPlaceholder);
   } else {
     hide(imgPreview);
+    if (pdfPreviewFrame) {
+      pdfPreviewFrame.src = currentFileUrl || "";
+    }
     show(pdfPlaceholder);
   }
 
@@ -487,9 +516,9 @@ async function loadReports() {
     list.innerHTML = reports.map(r => `
       <div class="report-card" style="background:var(--bg-panel); padding:16px; border-radius:12px; margin-bottom:12px; border:1px solid var(--border);">
         <div style="font-weight:700; margin-bottom:4px;">${escHtml(r.patient_name || r.filename)}</div>
-        <div style="font-size:0.8rem; color:var(--text-2); display:flex; justify-content:space-between;">
+        <div style="font-size:0.8rem; color:var(--text-2); display:flex; justify-content:space-between; align-items:center; gap:8px;">
            <span>${escHtml(r.report_date)}</span>
-           <span style="color:var(--accent)">View Details →</span>
+           ${r.file_url ? `<a href="${escHtml(r.file_url)}" target="_blank" rel="noreferrer" style="color:var(--accent); text-decoration:none;">Open file →</a>` : `<span style="color:var(--text-3);">No file URL</span>`}
         </div>
       </div>
     `).join("");
@@ -516,4 +545,7 @@ window.loadDashboard = loadDashboard;
 window.loadReports = loadReports;
 
 initTheme();
-loadDashboard();
+const initialSection = window.location.hash.slice(1).toLowerCase();
+if (["dashboard", "reports", "trends", "upload"].includes(initialSection)) {
+  navigate(initialSection.charAt(0).toUpperCase() + initialSection.slice(1));
+}

@@ -9,7 +9,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -33,14 +32,14 @@
 
       <!-- VIEW: LOGIN -->
       <div id="viewLogin">
-        <h2 style="font-size:1.25rem; margin-bottom:20px; color:var(--text-1);">Welcome Back</h2>
+        <h2 style="font-size:1.25rem; margin-bottom:20px; color:var(--text-1);">Sign in with Microsoft</h2>
         <div class="input-group">
-          <label for="authEmail">Email Address</label>
-          <input type="email" id="authEmail" placeholder="name@company.com" />
+          <label for="authEmail">Account email (optional)</label>
+          <input type="email" id="authEmail" placeholder="name@example.com" />
         </div>
         <div class="input-group">
-          <label for="authPassword">Password</label>
-          <input type="password" id="authPassword" placeholder="••••••••" />
+          <label for="authPassword">Password (managed by Microsoft)</label>
+          <input type="password" id="authPassword" placeholder="Use the Microsoft sign-in window" disabled />
         </div>
         
         <button id="loginBtn" class="btn-primary" style="width:100%; justify-content:center; margin-top:10px;">
@@ -114,7 +113,7 @@
       
       <button id="googleAuthBtn" class="btn-secondary" style="width:100%; justify-content:center; gap:12px; background:transparent; border:1px solid var(--border);">
         <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="18" />
-        <span style="font-weight:600;">Google</span>
+          <span style="font-weight:600;">Continue with Google</span>
       </button>
 
     </div>
@@ -291,7 +290,34 @@
             </div>
           </div>
           <div id="uploadProgress" style="display:none"></div>
-          <div id="previewCard" style="display:none"></div>
+          <div id="previewCard" style="display:none">
+            <div class="preview-header">
+              <h3 class="preview-title">Extracted Data — Please Verify</h3>
+              <button class="btn-primary" id="confirmBtn">Confirm & Save</button>
+            </div>
+
+            <div class="preview-media" style="margin: 18px 0; display:flex; flex-direction:column; gap:12px;">
+              <img id="imagePreview" alt="Uploaded report preview" style="display:none; width:100%; max-height:280px; object-fit:contain; border-radius:12px; border:1px solid var(--border); background:var(--bg-input);" />
+              <div id="pdfPlaceholder" style="display:none; border:1px solid var(--border); border-radius:12px; background:var(--bg-input); overflow:hidden;">
+                <iframe id="pdfPreviewFrame" title="PDF preview" style="width:100%; height:280px; border:none; background:white;"></iframe>
+              </div>
+            </div>
+
+            <div class="preview-meta" id="previewMeta"></div>
+            <div class="table-wrapper">
+              <table class="data-table" id="previewTable">
+                <thead>
+                  <tr>
+                    <th>Biomarker</th>
+                    <th>Value</th>
+                    <th>Unit</th>
+                    <th>Reference Range</th>
+                  </tr>
+                </thead>
+                <tbody id="previewBody"></tbody>
+              </table>
+            </div>
+          </div>
         </section>
       </main>
     </div>

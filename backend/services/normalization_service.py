@@ -1,7 +1,8 @@
 import json
 import os
+
 from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI  # type: ignore
 
 load_dotenv()
 
@@ -27,11 +28,12 @@ Return ONLY a JSON dictionary:
 }}
 """
 
+
 def get_llm():
-    return ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
+    return ChatOpenAI(
+        model=os.getenv("MODEL_NAME", "gpt-4o-mini"),
         temperature=0,
-        google_api_key=os.getenv("GOOGLE_API_KEY")
+        api_key=os.getenv("OPENAI_API_KEY"),
     )
 
 def normalize_biomarker_names(columns):

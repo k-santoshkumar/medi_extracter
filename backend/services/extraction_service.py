@@ -6,7 +6,6 @@ import re
 from PIL import Image
 from pdf2image import convert_from_path
 from PyPDF2 import PdfReader
-from langchain_google_genai import ChatGoogleGenerativeAI
 from .normalization_service import get_llm
 import logging
 

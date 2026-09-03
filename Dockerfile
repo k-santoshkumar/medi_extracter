@@ -1,5 +1,5 @@
-# Use official Python runtime as a parent image
-FROM python:3.10-slim
+# Use the Python 3.11 runtime required by the project.
+FROM python:3.11-slim
 
 # Install system dependencies (specifically poppler for pdf2image)
 RUN apt-get update && apt-get install -y \
@@ -29,12 +29,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Expose the port the app runs on
-EXPOSE 10000
+EXPOSE 8000
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV PORT=8000
 
-# Command to run the application
-# We use a single worker for better debugging on Render, but can be scaled
-CMD gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 2 --timeout 120 --access-logfile - --error-logfile - backend.main:app
+# Command to run the application with FastAPI and Uvicorn
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

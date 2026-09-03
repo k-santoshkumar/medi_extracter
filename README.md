@@ -4,17 +4,20 @@ A robust platform for automating the extraction, standardization, and visualizat
 
 ## Features
 
-- **Multimodal Extraction**: Uses Gemini 2.0 Flash to extract data from text-based PDFs, scanned documents, and smartphone photos.
+- **Multimodal Extraction**: Uses Azure OpenAI to extract data from text-based PDFs, scanned documents, and smartphone photos.
 - **Intelligent Normalization**: Automatically standardizes biomarker names (e.g., "Hb", "Hgb" -> "Hemoglobin") using LLM-based mapping.
 - **Premium Dashboard**: Responsive, mobile-first dashboard with Chart.js for visualizing health trends over time.
 - **Verification Workflow**: Preview and correct extracted data before finalizing.
-- **SQLite Storage**: Local database for reports and biomarkers.
+- **Azure Storage**: PostgreSQL stores structured records and private Azure Blob Storage stores source documents.
 
 ## Tech Stack
 
-- **Backend**: FastAPI, SQLAlchemy, LangChain (Google Generative AI).
+- **Backend**: FastAPI, SQLAlchemy, LangChain (Azure OpenAI).
 - **Frontend**: Vite, Vanilla JS, CSS (Mobile-responsive, Medical-themed).
-- **AI**: Gemini 2.0 Flash / 1.5 Flash.
+- **AI**: Azure OpenAI deployment configured through `OPENAI_API_KEY` and `MODEL_NAME`.
+- **Authentication**: Microsoft Entra ID via MSAL; the API validates Entra access tokens.
+
+To enable the Google button, configure Google as an external identity provider in the Entra tenant and keep `VITE_AZURE_GOOGLE_DOMAIN_HINT=Google`. The button cannot use Google directly because the API accepts only Entra-issued access tokens.
 
 ## Setup Instructions
 
@@ -30,8 +33,9 @@ A robust platform for automating the extraction, standardization, and visualizat
 # Install dependencies
 pip install -r backend/requirements.txt
 
-# Create .env file with your API key
-echo "GOOGLE_API_KEY=your_gemini_api_key" > .env
+# Configure Azure PostgreSQL, Azure OpenAI, Blob Storage, and Entra ID.
+cp .env.example .env
+# Replace the placeholder values in .env before starting the server.
 
 # Run the backend
 python run.py
@@ -53,5 +57,7 @@ npm run dev
 
 ## Verification Plan
 
-- Run `python test_extraction.py` to verify Gemini API integration.
+- Run `python -m compileall -q backend run.py` to verify Python syntax.
+- Run `cd frontend && npm run build` to build the web client.
+- Run `python test_extraction.py` only with a configured Azure OpenAI key and a test document.
 - Upload a sample PDF via the dashboard and check the trend visualizations.
